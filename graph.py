@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from utils import flip, read_gfa
 from search_tree import max_weight_dfs_tree
+from icecream import ic
 
 class DiED_Graph(nx.DiGraph):
     def __init__(self, gfa_file=None):
