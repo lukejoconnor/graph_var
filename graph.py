@@ -5,9 +5,9 @@ import numpy as np
 from utils import flip, read_gfa
 from search_tree import max_weight_dfs_tree
 
-class DiED_Graph(nx.DiGraph):
+class BiED_Graph(nx.DiGraph):
     def __init__(self, gfa_file=None):
-        super(DiED_Graph, self).__init__()
+        super(BiED_Graph, self).__init__()
         self.reference_tree = nx.DiGraph()
         self.path_basis = None
         self.walks = None
