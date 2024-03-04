@@ -4,10 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from utils import flip, read_gfa
 from search_tree import max_weight_dfs_tree
+from kruskal import kruskal_mst
 from icecream import ic
 
 class DiED_Graph(nx.DiGraph):
-    def __init__(self, gfa_file=None):
+    def __init__(self, gfa_file=None, spanning_forest_method='dfs'):
         super(DiED_Graph, self).__init__()
         self.reference_tree = nx.DiGraph()
         self.path_basis = None
@@ -61,7 +62,11 @@ class DiED_Graph(nx.DiGraph):
         # self.linear_reference = self.walks[0]
 
         # Construct reference tree and ref DAG
-        self.reference_tree, self.reference_dag = max_weight_dfs_tree(self, self.start_node) #TODO: maybe replace this function
+        if spanning_forest_method == 'kruskal':
+            self.reference_tree = kruskal_mst(self, self.start_node)
+            # TODO: construct self.reference_dag
+        elif spanning_forest_method == 'dfs':
+            self.reference_tree, self.reference_dag = max_weight_dfs_tree(self, self.start_node)
 
         # Ref path: from start to end node in the ref dag
         self.reference_path = nx.shortest_path(self.reference_tree, self.start_node, self.end_node)

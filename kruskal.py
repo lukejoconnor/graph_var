@@ -17,12 +17,12 @@ def union(parent, rank, x, y):
         parent[yroot] = xroot
         rank[xroot] += 1
 
-def kruskal_mst(graph):
+def kruskal_mst(graph, universal_source = None):
     result = []  # This will store the resultant MST
     i, e = 0, 0  # Number of edges to be taken is equal to V-1
 
     # Step 1: Sort all the edges in non-decreasing order of their weight
-    edges = sorted(graph.edges(data=True), key=lambda t: t[2].get('weight', 1), reverse=True)
+    edges = sorted(graph.edges(data='weight'), key=lambda t: t[2], reverse=True)
 
     F = nx.DiGraph()
     F.add_nodes_from(graph.nodes())
@@ -48,6 +48,13 @@ def kruskal_mst(graph):
             e = e + 1
             F.add_edge(u, v, weight=w)
             union(parent, rank, x, y)
+
+    if universal_source is not None:
+        source_nodes = [node for node, in_degree in F.in_degree() if in_degree == 0]
+        for source_node in source_nodes:
+            if source_node == universal_source:
+                continue
+            F.add_edge(universal_source, source_node, weight=0)
 
     return F
 
