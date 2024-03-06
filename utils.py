@@ -24,7 +24,7 @@ def read_gfa(filename):
               p = parts[6]
               matches = re.findall(pattern, p)
               # List to store node IDs
-              node_ids = []
+              node_ids = ['start_node']
 
               # Iterate through the matches to generate node IDs
               for i, match in enumerate(matches):
@@ -35,5 +35,6 @@ def read_gfa(filename):
                       elif matches[i - 1] == '>':
                           # For '>', generate IDs with '+'
                           node_ids.append(f'{match}_+')
+              node_ids.append('end_node')
               walks.append(node_ids)
   return nodes, edges, walks
