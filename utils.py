@@ -30,12 +30,10 @@ def read_gfa(filename):
               for i, match in enumerate(matches):
                   if match not in ['<', '>']:  # If the match is a word
                       if matches[i - 1] == '<':
-                          # For '<', generate IDs with '-_i' and '-_o'
-                          node_ids.append(f'{match}_-_i')
-                          node_ids.append(f'{match}_-_o')
+                          # For '<', generate IDs with '-'
+                          node_ids.append(f'{match}_-')
                       elif matches[i - 1] == '>':
-                          # For '>', generate IDs with '+_i' and '+_o'
-                          node_ids.append(f'{match}_+_i')
-                          node_ids.append(f'{match}_+_o')
+                          # For '>', generate IDs with '+'
+                          node_ids.append(f'{match}_+')
               walks.append(node_ids)
   return nodes, edges, walks

@@ -26,9 +26,9 @@ class DiED_Graph(nx.DiGraph):
             print("Num of Edges:", len(edges))
             for gene in genes:
                 self.add_gene(gene)
-            for edge in edges:
-                self.add_diedge(edge[0], edge[1], edge[2], edge[3])
-                self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]))
+            for n, edge in enumerate(edges):
+                self.add_diedge(edge[0], edge[1], edge[2], edge[3], n)
+                self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]), -n)
             self.walks = walks
             self.num_walks = len(walks)
 
@@ -99,16 +99,12 @@ class DiED_Graph(nx.DiGraph):
 
     def add_gene(self, gene, seq=''):
 
-      self.add_node(str(gene)+'_+_i', sequence=seq, direction='+')
-      self.add_node(str(gene)+'_+_o', sequence=seq, direction='+')
-      self.add_node(str(gene)+'_-_i', sequence=seq, direction='-')
-      self.add_node(str(gene)+'_-_o', sequence=seq, direction='-')
-      self.add_edge(str(gene)+'_+_i', str(gene)+'_+_o', kind='intra', weight=0)
-      self.add_edge(str(gene)+'_-_i', str(gene)+'_-_o', kind='intra', weight=0)
+      self.add_node(str(gene)+'_+', sequence=seq, direction='+')
+      self.add_node(str(gene)+'_-', sequence=seq, direction='-')
 
-    def add_diedge(self, gene1, gene2, direction1, direction2):
+    def add_diedge(self, gene1, gene2, direction1, direction2, n):
 
-      self.add_edge(str(gene1)+'_'+direction1+'_o', str(gene2)+'_'+direction2+'_i', kind='inter', weight=0)
+      self.add_edge(str(gene1)+'_'+direction1, str(gene2)+'_'+direction2, weight=0, index=n)
 
     def add_weights(self):
       for walk_list in self.walks:
