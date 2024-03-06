@@ -8,48 +8,49 @@ from kruskal import kruskal_mst
 from icecream import ic
 
 class DiED_Graph(nx.DiGraph):
-    def __init__(self, gfa_file=None, spanning_forest_method='dfs'):
+    def __init__(self, gfa_file: str = None, reference_walk: int = None):
         super(DiED_Graph, self).__init__()
-        self.reference_tree = nx.DiGraph()
-        self.path_basis = None
-        self.walks = None
-        self.reference_dag = nx.DiGraph()
-        self.reference_path = None
-        self.position = [{} for i in range(2)]
+        self.reference_tree: nx.classes.digraph.DiGraph = nx.DiGraph()
+        self.reference_dag: nx.classes.digraph.DiGraph = nx.DiGraph()
+        self.variant_edges: set = set()
+        self.walks: list = []
+        self.reference_path: list = []
+        self.position: dict = {}
+        self.num_walks: int = 0
+        self.num_variants: int = 0
+        self.genotypes: list = []
 
         if gfa_file:
-          genes, edges, walks = read_gfa(gfa_file)
-          print("Num of Genes:", len(genes))
-          print("Num of Edges:", len(edges))
-          for gene in genes:
-            self.add_gene(gene)
-          for edge in edges:
-            self.add_diedge(edge[0], edge[1], edge[2], edge[3])
-            self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]))
-          self.walks = walks
+            genes, edges, walks = read_gfa(gfa_file)
+            print("Num of Genes:", len(genes))
+            print("Num of Edges:", len(edges))
+            for gene in genes:
+                self.add_gene(gene)
+            for edge in edges:
+                self.add_diedge(edge[0], edge[1], edge[2], edge[3])
+                self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]))
+            self.walks = walks
+            self.num_walks = len(walks)
 
-        # assign weights to edges
-        n_missing = 0
-        n_nonmissing = 0
-        for walk in self.walks:
-          for i in range(len(walk) - 1):
-              u, v = walk[i], walk[i + 1]
-              if not self.has_edge(u, v):  # Check if the edge exists in the graph
-                n_missing += 1
-                if n_missing <= 10:
-                  print(u,v)
-                continue
-              #self[u][v]['weight'] += 1  # Increase the weight of the edge by 1
-              n_nonmissing += 1
-        print(n_missing, n_nonmissing)
+        # Add universal source and sink nodes
+        self.add_source_and_sink_nodes()
 
-        # create a DFS forest
+        # Add weights to edges
+        self.add_weights()
+
+        # Create spanning tree
+        self.add_reference(reference_walk = reference_walk)
+
+        # Call variants
+        self.count_variants()
+
+    def add_source_and_sink_nodes(self):
         source_nodes = [node for node, in_degree in self.in_degree() if in_degree == 0]
         sink_nodes = [node for node, out_degree in self.out_degree() if out_degree == 0]
 
-        self.start_node = 'start_node'  # This is one way to ensure the new node has a unique ID
+        self.start_node = 'start_node'
         self.add_node(self.start_node)
-        self.end_node = 'end_node'  # This is one way to ensure the new node has a unique ID
+        self.end_node = 'end_node'
         self.add_node(self.end_node)
 
         for source_node in source_nodes:
@@ -57,34 +58,44 @@ class DiED_Graph(nx.DiGraph):
         for sink_node in sink_nodes:
             self.add_edge(sink_node, self.end_node, weight=0)
 
-        self.add_weights()
+    def add_reference(self, reference_walk: int = None, spanning_forest_method: str = 'kruskal'):
 
-        # self.linear_reference = self.walks[0]
+        initial_reference_tree = nx.DiGraph()
+        if reference_walk is not None:
+            self.reference_path = self.walks[reference_walk]
+            for u, v in zip(self.reference_path, self.reference_path[1:]):
+                # Step 3: Check if the edge exists in G and then add it to H with the same attributes
+                if self.has_edge(u, v):
+                    edge_attr = self[u][v]  # Get the attributes of the edge from G
+                    initial_reference_tree.add_edge(u, v, **edge_attr)  # Add the edge to H with the attributes
 
         # Construct reference tree and ref DAG
         if spanning_forest_method == 'kruskal':
-            self.reference_tree = kruskal_mst(self, self.start_node)
-            # TODO: construct self.reference_dag
+            self.reference_tree = kruskal_mst(
+                self,
+                universal_source=self.start_node,
+                initial_graph=initial_reference_tree
+            )
         elif spanning_forest_method == 'dfs':
             self.reference_tree, self.reference_dag = max_weight_dfs_tree(self, self.start_node)
-
-        # Ref path: from start to end node in the ref dag
-        self.reference_path = nx.shortest_path(self.reference_tree, self.start_node, self.end_node)
-
-        # Define node positions
-        for direction in range(2):
-          print(direction)
-          self.get_node_positions(direction)
-
-        # Check consistency of node positions
-        for node in self.reference_dag.nodes():
-          assert(self.position[0][node] <= self.position[1][node])
 
         # All of the edges in the pangenome graph not in the reference tree
         all_edges = set(self.edges())
         reference_edges = set(self.reference_tree.edges())
-        self.path_basis = all_edges.difference(reference_edges)
+        self.variant_edges = all_edges.difference(reference_edges)
+        self.num_variants = len(self.variant_edges)
 
+    def add_positions(self):
+        if self.reference_dag.number_of_nodes() < self.number_of_nodes():
+            raise ValueError('Reference DAG does not have enough nodes, probably because it is not defined')
+
+        # Define node positions
+        for direction in range(2):
+            self.get_node_positions(direction)
+
+        # Check consistency of node positions
+        for node in self.reference_dag.nodes():
+            assert (self.position[0][node] <= self.position[1][node])
 
     def add_gene(self, gene, seq=''):
 
@@ -104,16 +115,22 @@ class DiED_Graph(nx.DiGraph):
         for i in range(int(len(walk_list))-1):
           self.edges[walk_list[i], walk_list[i+1]]['weight'] += 1
 
-    def add_weights_test(self):
-      for id, walk_list in enumerate(self.walks):
-        for i in range(int(len(walk_list))-1):
-          if id == 0:
-            self.edges[walk_list[i], walk_list[i+1]]['weight'] += 1e+9
-          else:
-            self.edges[walk_list[i], walk_list[i+1]]['weight'] += 1
+    def count_variants(self):
+
+        self.genotypes = [{} for i in range(self.num_walks)]
+        for individual in range(self.num_walks):
+            walk_list = self.walks[individual]
+            for i in range(len(walk_list) - 1):
+                edge = walk_list[i], walk_list[i + 1]
+                if edge not in self.variant_edges:
+                    continue
+
+                if edge in self.genotypes[individual]:
+                    self.genotypes[individual][edge] += 1
+                else:
+                    self.genotypes[individual][edge] = 1
 
     def get_node_positions(self, direction):
-      print(direction)
       self.position[direction] = {u:-inf * (-1)**direction for u in self.reference_dag.nodes}
       for n, u in enumerate(self.reference_path):
         self.position[direction][u] = n
