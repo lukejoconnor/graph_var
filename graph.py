@@ -29,10 +29,10 @@ class DiED_Graph(nx.DiGraph):
             print("Num of Genes:", len(genes))
             print("Num of Edges:", len(edges))
             for gene in genes:
-                self.add_gene(gene)
+                self.add_dinode(gene)
             for n, edge in enumerate(edges):
-                self.add_diedge(edge[0], edge[1], edge[2], edge[3], n)
-                self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]), -n)
+                self.add_diedge(edge[0], edge[1], edge[2], edge[3], n+1)
+                self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]), -(n+1))
             self.walks = walks
             self.num_walks = len(walks)
 
@@ -43,7 +43,7 @@ class DiED_Graph(nx.DiGraph):
         self.add_weights()
 
         # Create spanning tree
-        self.add_reference(reference_walk_index= reference_walk_index, spanning_forest_method = spanning_forest_method)
+        self.add_reference(reference_walk_index=reference_walk_index, spanning_forest_method=spanning_forest_method)
 
         # Call variants
         self.count_variants()
@@ -61,6 +61,7 @@ class DiED_Graph(nx.DiGraph):
             self.add_edge(self.start_node, source_node, weight=0)
         for sink_node in sink_nodes:
             self.add_edge(sink_node, self.end_node, weight=0)
+
 
     def add_reference(self, reference_walk_index: int = None, spanning_forest_method: str = 'dfs'):
 
@@ -97,6 +98,29 @@ class DiED_Graph(nx.DiGraph):
         self.variant_edges = all_edges.difference(reference_edges)
         self.num_variants = len(self.variant_edges)
 
+    def write_edgeinfo(self, filename: str) -> None:
+        with open(filename, 'w') as file:
+            # Write the header row
+            file.write("index,weight,in_reference_tree,in_reference_dag\n")
+
+            # Sort the edges by 'index' attribute for writing in sorted order
+            edges = [edge for edge in self.edges(data=True) if 'index' in edge[2]]
+            sorted_edges = sorted(edges, key=lambda edge: edge[2]['index'])
+
+            for edge in sorted_edges:
+                u, v, data = edge
+                weight = data['weight']
+                index = data['index']
+
+                # Check if the edge is in the reference_tree
+                in_ref_tree = 1 if self.reference_tree.has_edge(u, v) else 0
+
+                # Check if the edge is in the reference_dag
+                in_ref_dag = 1 if self.reference_dag.has_edge(u, v) else 0
+
+                # Write the edge information to the file
+                file.write(f"{index},{weight},{in_ref_tree},{in_ref_dag}\n")
+
     def add_positions(self):
         if self.reference_dag.number_of_nodes() < self.number_of_nodes():
             raise ValueError('Reference DAG does not have enough nodes, probably because it is not defined')
@@ -109,8 +133,7 @@ class DiED_Graph(nx.DiGraph):
         for node in self.reference_dag.nodes():
             assert (self.position[0][node] <= self.position[1][node])
 
-    def add_gene(self, gene, seq=''):
-
+    def add_dinode(self, gene, seq=''):
       self.add_node(str(gene)+'_+', sequence=seq, direction='+')
       self.add_node(str(gene)+'_-', sequence=seq, direction='-')
 
