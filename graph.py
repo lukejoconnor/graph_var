@@ -8,7 +8,11 @@ from kruskal import kruskal_mst
 from icecream import ic
 
 class DiED_Graph(nx.DiGraph):
-    def __init__(self, gfa_file: str = None, reference_walk: int = None):
+    def __init__(self,
+                 gfa_file: str = None,
+                 reference_walk_index: int = None,
+                 spanning_forest_method: str = 'dfs'
+                 ):
         super(DiED_Graph, self).__init__()
         self.reference_tree: nx.classes.digraph.DiGraph = nx.DiGraph()
         self.reference_dag: nx.classes.digraph.DiGraph = nx.DiGraph()
@@ -39,7 +43,7 @@ class DiED_Graph(nx.DiGraph):
         self.add_weights()
 
         # Create spanning tree
-        self.add_reference(reference_walk = reference_walk)
+        self.add_reference(reference_walk_index= reference_walk_index, spanning_forest_method = spanning_forest_method)
 
         # Call variants
         self.count_variants()
@@ -58,26 +62,34 @@ class DiED_Graph(nx.DiGraph):
         for sink_node in sink_nodes:
             self.add_edge(sink_node, self.end_node, weight=0)
 
-    def add_reference(self, reference_walk: int = None, spanning_forest_method: str = 'kruskal'):
+    def add_reference(self, reference_walk_index: int = None, spanning_forest_method: str = 'dfs'):
 
         initial_reference_tree = nx.DiGraph()
-        if reference_walk is not None:
-            self.reference_path = self.walks[reference_walk]
+        if reference_walk_index is not None:
+            if reference_walk_index >= self.num_walks or reference_walk_index < 0:
+                raise ValueError(f'Reference walk index should be an integer >= 0 and < {self.num_walks}')
+            self.reference_path = self.walks[reference_walk_index]
+
+        # Construct reference tree and ref DAG
+        if spanning_forest_method == 'kruskal':
             for u, v in zip(self.reference_path, self.reference_path[1:]):
                 # Step 3: Check if the edge exists in G and then add it to H with the same attributes
                 if self.has_edge(u, v):
                     edge_attr = self[u][v]  # Get the attributes of the edge from G
                     initial_reference_tree.add_edge(u, v, **edge_attr)  # Add the edge to H with the attributes
 
-        # Construct reference tree and ref DAG
-        if spanning_forest_method == 'kruskal':
             self.reference_tree = kruskal_mst(
                 self,
                 universal_source=self.start_node,
                 initial_graph=initial_reference_tree
             )
         elif spanning_forest_method == 'dfs':
-            self.reference_tree, self.reference_dag = max_weight_dfs_tree(self, self.start_node)
+            self.reference_tree, self.reference_dag = max_weight_dfs_tree(self,
+                                                                          source=self.start_node,
+                                                                          reference_path=self.reference_path)
+        else:
+            raise ValueError(f"spanning_forest_method should be either 'kruskal' or 'dfs'")
+
 
         # All of the edges in the pangenome graph not in the reference tree
         all_edges = set(self.edges())
