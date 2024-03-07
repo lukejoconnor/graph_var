@@ -7,9 +7,11 @@ from search_tree import max_weight_dfs_tree
 from kruskal import kruskal_mst
 from icecream import ic
 
+
 class DiED_Graph(nx.DiGraph):
     def __init__(self,
                  gfa_file: str = None,
+                 edgeinfo_file: str = None,
                  reference_walk_index: int = None,
                  spanning_forest_method: str = 'dfs'
                  ):
@@ -24,26 +26,41 @@ class DiED_Graph(nx.DiGraph):
         self.num_variants: int = 0
         self.genotypes: list = []
 
-        if gfa_file:
-            genes, edges, walks = read_gfa(gfa_file)
-            print("Num of Genes:", len(genes))
-            print("Num of Edges:", len(edges))
-            for gene in genes:
-                self.add_dinode(gene)
-            for n, edge in enumerate(edges):
-                self.add_diedge(edge[0], edge[1], edge[2], edge[3], n+1)
-                self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]), -(n+1))
-            self.walks = walks
-            self.num_walks = len(walks)
+        if gfa_file is None:
+            return
+
+        genes, edges, walks = read_gfa(gfa_file)
+        print("Num of Genes:", len(genes))
+        print("Num of Edges:", len(edges))
+        for gene in genes:
+            self.add_dinode(gene)
+        for n, edge in enumerate(edges):
+            self.add_diedge(edge[0], edge[1], edge[2], edge[3], n+1)
+            self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]), -(n+1))
+        self.walks = walks
+        self.num_walks = len(walks)
 
         # Add universal source and sink nodes
         self.add_source_and_sink_nodes()
 
-        # Add weights to edges
-        self.add_weights()
+        # Add reference walk
+        if reference_walk_index is not None:
+            if reference_walk_index >= self.num_walks or reference_walk_index < 0:
+                raise ValueError(f'Reference walk index should be an integer >= 0 and < {self.num_walks}')
+            self.reference_path = self.walks[reference_walk_index]
 
-        # Create spanning tree
-        self.add_reference(reference_walk_index=reference_walk_index, spanning_forest_method=spanning_forest_method)
+        if edgeinfo_file:
+            # Read edgeinfo file and create reference tree and reference dag
+            self.read_edgeinfo(edgeinfo_file)
+
+            # Because edges involving start + end nodes are not in the edge_info file, annotate them now
+            self.annotate_start_and_end()
+        else:
+            # Add weights to edges
+            self.add_weights()
+
+            # Create spanning tree
+            self.add_reference(reference_walk_index=reference_walk_index, spanning_forest_method=spanning_forest_method)
 
         # Call variants
         self.count_variants()
@@ -62,14 +79,40 @@ class DiED_Graph(nx.DiGraph):
         for sink_node in sink_nodes:
             self.add_edge(sink_node, self.end_node, weight=0)
 
+    def annotate_start_and_end(self):
+
+        # Add weights to these edges
+        for walk in self.walks:
+            if len(walk) < 2:
+                continue
+            first_node = walk[1] # first after start_node
+            last_node = walk[-2]
+            self[self.start_node][first_node]['weight'] += 1
+            self[last_node][self.end_node]['weight'] += 1
+
+        # All out-edges of start node are in both the ref tree and the ref dag
+        for edge in self.out_edges(self.start_node):
+            u,v = edge
+            self.reference_dag.add_edge(u,v)
+            self.reference_tree.add_edge(u,v)
+
+        # All in-edges of the end node are in the ref dag
+        for edge in self.in_edges(self.end_node):
+            u,v = edge
+            self.reference_dag.add_edge(u,v)
+
+        # Exactly one in-edge of the end node is in the ref tree
+        if len(self.reference_path) > 1:
+            # Pick the reference walk penultimate node
+            self.reference_tree.add_edge(self.reference_path[-2], self.end_node)
+        else:
+            # Pick the max-weight penultimate node
+            max_weight_end_edge = max(self.in_edges(self.end_node, data='weight'), key=lambda tup: tup[2])
+            self.reference_tree.add_edge(max_weight_end_edge[0], self.end_node)
 
     def add_reference(self, reference_walk_index: int = None, spanning_forest_method: str = 'dfs'):
 
         initial_reference_tree = nx.DiGraph()
-        if reference_walk_index is not None:
-            if reference_walk_index >= self.num_walks or reference_walk_index < 0:
-                raise ValueError(f'Reference walk index should be an integer >= 0 and < {self.num_walks}')
-            self.reference_path = self.walks[reference_walk_index]
 
         # Construct reference tree and ref DAG
         if spanning_forest_method == 'kruskal':
@@ -120,6 +163,47 @@ class DiED_Graph(nx.DiGraph):
 
                 # Write the edge information to the file
                 file.write(f"{index},{weight},{in_ref_tree},{in_ref_dag}\n")
+
+    def read_edgeinfo(self, filename: str) -> None:
+
+        weight = np.zeros(2 * self.number_of_edges(), dtype=np.int32)
+        in_reference_tree = np.zeros(2 * self.number_of_edges(), dtype=np.int32)
+        in_reference_dag = np.zeros(2 * self.number_of_edges(), dtype=np.int32)
+
+        # Read the file
+        with open(filename, 'r') as file:
+            # Skip the header row
+            next(file)
+
+            for line in file:
+                # Split the line into components
+                parts = line.strip().split(',')
+                assert(len(parts) == 4)
+
+                # Extract the edge info
+                index = int(parts[0])
+                weight[index] = int(parts[1])
+                in_reference_tree[index] = int(parts[2])
+                in_reference_dag[index] = int(parts[3])
+
+        # Use the edge info to add weights, create ref tree + ref dag
+        for edge in self.edges(data=True):
+            u, v, data = edge
+            if 'index' not in data:
+                continue
+            idx = self[u][v]['index']
+            self[u][v]['weight'] = weight[idx]
+            if in_reference_dag[idx] == 0:
+                continue # also not in ref tree
+            self.reference_dag.add_edge(u, v)
+            if in_reference_tree[idx] == 0:
+                continue
+            self.reference_tree.add_edge(u, v)
+
+    def index_to_edge(self, index):
+        # You need to implement this method based on how you map indices to edge tuples
+        # This is just a placeholder function
+        return (u, v)  # Replace (u, v) with actual logic to convert index to edge tuple
 
     def add_positions(self):
         if self.reference_dag.number_of_nodes() < self.number_of_nodes():
