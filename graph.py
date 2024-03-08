@@ -134,7 +134,6 @@ class DiED_Graph(nx.DiGraph):
         else:
             raise ValueError(f"spanning_forest_method should be either 'kruskal' or 'dfs'")
 
-
         # All of the edges in the pangenome graph not in the reference tree
         all_edges = set(self.edges())
         reference_edges = set(self.reference_tree.edges())
@@ -200,11 +199,6 @@ class DiED_Graph(nx.DiGraph):
                 continue
             self.reference_tree.add_edge(u, v)
 
-    def index_to_edge(self, index):
-        # You need to implement this method based on how you map indices to edge tuples
-        # This is just a placeholder function
-        return (u, v)  # Replace (u, v) with actual logic to convert index to edge tuple
-
     def add_positions(self):
         if self.reference_dag.number_of_nodes() < self.number_of_nodes():
             raise ValueError('Reference DAG does not have enough nodes, probably because it is not defined')
@@ -218,20 +212,18 @@ class DiED_Graph(nx.DiGraph):
             assert (self.position[0][node] <= self.position[1][node])
 
     def add_dinode(self, gene, seq=''):
-      self.add_node(str(gene)+'_+', sequence=seq, direction='+')
-      self.add_node(str(gene)+'_-', sequence=seq, direction='-')
+        self.add_node(str(gene)+'_+', sequence=seq, direction='+')
+        self.add_node(str(gene)+'_-', sequence=seq, direction='-')
 
     def add_diedge(self, gene1, gene2, direction1, direction2, n):
-
-      self.add_edge(str(gene1)+'_'+direction1, str(gene2)+'_'+direction2, weight=0, index=n)
+        self.add_edge(str(gene1)+'_'+direction1, str(gene2)+'_'+direction2, weight=0, index=n)
 
     def add_weights(self):
-      for walk_list in self.walks:
-        for i in range(int(len(walk_list))-1):
-          self.edges[walk_list[i], walk_list[i+1]]['weight'] += 1
+        for walk_list in self.walks:
+            for i in range(int(len(walk_list))-1):
+                self.edges[walk_list[i], walk_list[i+1]]['weight'] += 1
 
     def count_variants(self):
-
         self.genotypes = [{} for i in range(self.num_walks)]
         for individual in range(self.num_walks):
             walk_list = self.walks[individual]
@@ -246,57 +238,55 @@ class DiED_Graph(nx.DiGraph):
                     self.genotypes[individual][edge] = 1
 
     def get_node_positions(self, direction):
-      self.position[direction] = {u:-inf * (-1)**direction for u in self.reference_dag.nodes}
-      for n, u in enumerate(self.reference_path):
-        self.position[direction][u] = n
-      assert(self.position[direction][self.start_node] == 0)
-      assert(self.position[direction][self.end_node] > 0)
-
-      if direction == 0:
-        G = self.reference_dag
-      else:
-        G = self.reference_dag.reverse()
-
-      order = nx.topological_sort(G)
-      for u in order:
-        pred = list(G.predecessors(u))
-        pred.append(u)
+        self.position[direction] = {u:-inf * (-1)**direction for u in self.reference_dag.nodes}
+        for n, u in enumerate(self.reference_path):
+            self.position[direction][u] = n
+        assert(self.position[direction][self.start_node] == 0)
+        assert(self.position[direction][self.end_node] > 0)
 
         if direction == 0:
-          # print(u, self.position[direction][u])
-          self.position[direction][u] = np.max([self.position[direction][v] for v in pred])
-          # print(u, self.position[direction][u])
+            G = self.reference_dag
         else:
-          self.position[direction][u] = np.min([self.position[direction][v] for v in pred])
+            G = self.reference_dag.reverse()
+
+        order = nx.topological_sort(G)
+        for u in order:
+            pred = list(G.predecessors(u))
+            pred.append(u)
+
+        if direction == 0:
+            self.position[direction][u] = np.max([self.position[direction][v] for v in pred])
+        else:
+            self.position[direction][u] = np.min([self.position[direction][v] for v in pred])
 
 
     def find_path_to_linear_ref(self, bfs_tree, node):
-      current = node
-      while current not in self.linear_reference + [self.start_node]:
-          # In a BFS tree, each node except the root has exactly one predecessor
-          preds = list(bfs_tree.predecessors(current))
-          current = preds[0]
-      return current
+        current = node
+        while current not in self.linear_reference + [self.start_node]:
+            # In a BFS tree, each node except the root has exactly one predecessor
+            preds = list(bfs_tree.predecessors(current))
+            current = preds[0]
+        return current
 
     def show(self, G, i_pos=None):
-      if i_pos == None:
-        pos = nx.spring_layout(G)
-      else:
-        pos = i_pos
-
-      plt.figure(figsize=(15,10))
-      # Draw the graph
-      nx.draw_networkx_nodes(G, pos, node_color='white', node_shape='o', edgecolors='black', node_size=500)
-
-      # Draw edges
-      for edge, key in enumerate(G.edges):
-        if key[2] == 'r':
-          nx.draw_networkx_edges(G, pos, arrows=True, arrowstyle='-', edgelist=[key], connectionstyle=f'arc3,rad={0}', edge_color='red')
+        if i_pos is None:
+            pos = nx.spring_layout(G)
         else:
-          nx.draw_networkx_edges(G, pos, arrows=True, arrowstyle='-', edgelist=[key], connectionstyle=f'arc3,rad={0.30}', edge_color='black')
+            pos = i_pos
 
-      # Draw node labels
-      nx.draw_networkx_labels(G, pos, font_size=8)
+        plt.figure(figsize=(15,10))
+        # Draw the graph
+        nx.draw_networkx_nodes(G, pos, node_color='white', node_shape='o', edgecolors='black', node_size=500)
 
-      # Show plot
-      plt.show()
+        # Draw edges
+        for edge, key in enumerate(G.edges):
+            if key[2] == 'r':
+                nx.draw_networkx_edges(G, pos, arrows=True, arrowstyle='-', edgelist=[key], connectionstyle=f'arc3,rad={0}', edge_color='red')
+            else:
+                nx.draw_networkx_edges(G, pos, arrows=True, arrowstyle='-', edgelist=[key], connectionstyle=f'arc3,rad={0.30}', edge_color='black')
+
+        # Draw node labels
+        nx.draw_networkx_labels(G, pos, font_size=8)
+
+        # Show plot
+        plt.show()
