@@ -237,6 +237,44 @@ class DiED_Graph(nx.DiGraph):
                 else:
                     self.genotypes[individual][edge] = 1
 
+    def count_edge_visits(self, geno: dict) -> dict:
+
+        sources = {self.start_node: 1}
+        sinks = list([self.end_node])
+
+        # For alternative alleles (u,v), add v to the set of "sources" and u to the set of "sinks"
+        for edge, visit_count in geno.items():
+            u,v = edge
+            sources[v] = visit_count
+            for i in range(visit_count):
+                sinks.append(u)
+
+        edge_visits = geno.copy()
+        for sink in sinks:
+            # Walk up the tree (in the only possible direction) until reaching a source
+            current_node = sink
+            while current_node not in sources:
+                # If current_node is the root, it means that the input genotype was invalid
+                if current_node == self.start_node:
+                    raise ValueError("The input genotype does not correspond to any valid walk")
+
+                # Increment the counter
+                previous_node = current_node
+                current_node = next(self.reference_tree.predecessors(current_node))
+                if (current_node, previous_node) in edge_visits:
+                    edge_visits[(current_node, previous_node)] += 1
+                else:
+                    edge_visits[(current_node, previous_node)] = 1
+
+            # when reaching the source, it is "used up"
+            if sources[current_node] == 1:
+                sources.pop(current_node)
+            else:
+                sources[current_node] -= 1
+
+        return edge_visits
+
+
     def get_node_positions(self, direction):
         self.position[direction] = {u:-inf * (-1)**direction for u in self.reference_dag.nodes}
         for n, u in enumerate(self.reference_path):
