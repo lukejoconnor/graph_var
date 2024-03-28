@@ -5,7 +5,7 @@ import numpy as np
 from utils import flip, read_gfa
 from search_tree import max_weight_dfs_tree
 from kruskal import kruskal_mst
-from icecream import ic
+# from icecream import ic
 
 
 class DiED_Graph(nx.DiGraph):
@@ -41,7 +41,9 @@ class DiED_Graph(nx.DiGraph):
         self.num_walks = len(walks)
 
         # Add universal source and sink nodes
+        print('start_adding source')
         self.add_source_and_sink_nodes()
+        print("finished adding source")
 
         # Add reference walk
         if reference_walk_index is not None:
@@ -54,28 +56,44 @@ class DiED_Graph(nx.DiGraph):
             self.read_edgeinfo(edgeinfo_file)
 
             # Because edges involving start + end nodes are not in the edge_info file, annotate them now
+            print("Start annotating")
             self.annotate_start_and_end()
         else:
             # Add weights to edges
+            print("Start adding weights")
             self.add_weights()
-
+            print("Finish adding weights, start creating tree")
             # Create spanning tree
             self.add_reference(reference_walk_index=reference_walk_index, spanning_forest_method=spanning_forest_method)
 
+        # Add positions
+        print('start adding position')
+        #self.add_positions()
         # Call variants
+        print("finished adding position, start calling variants")
         self.count_variants()
+        print("finish calling")
 
     def add_source_and_sink_nodes(self):
         source_nodes = [node for node, in_degree in self.in_degree() if in_degree == 0]
         sink_nodes = [node for node, out_degree in self.out_degree() if out_degree == 0]
 
+        for i in range(len(self.walks)):
+            if self.walks[i][0] in source_nodes:
+                self.walks[i] = ['start_node'] + self.walks[i]
+            if self.walks[i][-1] in sink_nodes:
+                self.walks[i] = self.walks[i] + ['end_node']
+
+        print("Total node with in-degree 0",len(source_nodes))
         self.start_node = 'start_node'
         self.add_node(self.start_node)
         self.end_node = 'end_node'
         self.add_node(self.end_node)
 
+        print('adding source edge')
         for source_node in source_nodes:
             self.add_edge(self.start_node, source_node, weight=0)
+        print('adding sink edge')
         for sink_node in sink_nodes:
             self.add_edge(sink_node, self.end_node, weight=0)
 
@@ -221,6 +239,7 @@ class DiED_Graph(nx.DiGraph):
     def add_weights(self):
         for walk_list in self.walks:
             for i in range(int(len(walk_list))-1):
+                #print(self.edges)
                 self.edges[walk_list[i], walk_list[i+1]]['weight'] += 1
 
     def count_variants(self):
