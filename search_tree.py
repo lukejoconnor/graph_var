@@ -17,6 +17,8 @@ def max_weight_dfs_tree(G: nx.DiGraph,
     visited = set()  # Keep track of visited nodes
     ancestors = set()  # Ancestors of last visited node
     last_visited_node = None
+
+    # TODO add entire reference path, in order; then delete special handling
     stack = [(source, None)]  # Stack for DFS, storing (node, parent)
 
     while stack:
@@ -43,7 +45,7 @@ def max_weight_dfs_tree(G: nx.DiGraph,
             # Special handling for any edges contained in the reference path
             reference_node = None
 
-            # Last-added edges will be visted first
+            # Last-added edges will be visited first
             for _, neighbor, _ in neighbors:
                 if (current_node, neighbor) in reference_path:
                     assert(reference_node is None)

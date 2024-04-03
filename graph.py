@@ -12,7 +12,7 @@ class DiED_Graph(nx.DiGraph):
     def __init__(self,
                  gfa_file: str = None,
                  edgeinfo_file: str = None,
-                 reference_walk_index: int = None,
+                 reference_path_index: int = None,
                  spanning_forest_method: str = 'dfs'
                  ):
         super(DiED_Graph, self).__init__()
@@ -45,11 +45,12 @@ class DiED_Graph(nx.DiGraph):
         self.add_source_and_sink_nodes()
         print("finished adding source")
 
-        # Add reference walk
-        if reference_walk_index is not None:
-            if reference_walk_index >= self.num_walks or reference_walk_index < 0:
+        # Add reference path
+        # TODO check that reference path has no duplicate vertices
+        if reference_path_index is not None:
+            if reference_path_index >= self.num_walks or reference_path_index < 0:
                 raise ValueError(f'Reference walk index should be an integer >= 0 and < {self.num_walks}')
-            self.reference_path = self.walks[reference_walk_index]
+            self.reference_path = self.walks[reference_path_index]
 
         if edgeinfo_file:
             # Read edgeinfo file and create reference tree and reference dag
@@ -64,7 +65,7 @@ class DiED_Graph(nx.DiGraph):
             self.add_weights()
             print("Finish adding weights, start creating tree")
             # Create spanning tree
-            self.add_reference(reference_walk_index=reference_walk_index, spanning_forest_method=spanning_forest_method)
+            self.add_reference(reference_walk_index=reference_path_index, spanning_forest_method=spanning_forest_method)
 
         # Add positions
         print('start adding position')
@@ -74,7 +75,7 @@ class DiED_Graph(nx.DiGraph):
         self.count_variants()
         print("finish calling")
 
-    def add_source_and_sink_nodes(self):
+    def add_source_and_sink_nodes(self): # TODO add edges between universal source and any start point of a walk (even if not a source); same with universal end
         source_nodes = [node for node, in_degree in self.in_degree() if in_degree == 0]
         sink_nodes = [node for node, out_degree in self.out_degree() if out_degree == 0]
 
@@ -262,9 +263,12 @@ class DiED_Graph(nx.DiGraph):
         sinks = list([self.end_node])
 
         # For alternative alleles (u,v), add v to the set of "sources" and u to the set of "sinks"
-        for edge, visit_count in geno.items():
-            u,v = edge
-            sources[v] = visit_count
+        for variant_edge, visit_count in geno.items():
+            u,v = variant_edge
+            if v in sources:
+                sources[v] += visit_count
+            else:
+                sources[v] = visit_count # TODO correct?
             for i in range(visit_count):
                 sinks.append(u)
 
