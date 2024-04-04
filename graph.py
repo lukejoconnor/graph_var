@@ -41,7 +41,6 @@ class DiED_Graph(nx.DiGraph):
         self.num_walks = len(walks)
 
         # Add universal source and sink nodes
-        print('start_adding source')
         self.add_source_and_sink_nodes()
         print("finished adding source")
 
@@ -59,6 +58,10 @@ class DiED_Graph(nx.DiGraph):
             # Because edges involving start + end nodes are not in the edge_info file, annotate them now
             print("Start annotating")
             self.annotate_start_and_end()
+
+            all_edges = set(self.edges())
+            reference_edges = set(self.reference_tree.edges())
+            self.variant_edges = all_edges.difference(reference_edges)
         else:
             # Add weights to edges
             print("Start adding weights")
@@ -68,35 +71,34 @@ class DiED_Graph(nx.DiGraph):
             self.add_reference(reference_walk_index=reference_path_index, spanning_forest_method=spanning_forest_method)
 
         # Add positions
-        print('start adding position')
-        #self.add_positions()
+        self.add_positions()
+
         # Call variants
-        print("finished adding position, start calling variants")
         self.count_variants()
-        print("finish calling")
 
     def add_source_and_sink_nodes(self): # TODO add edges between universal source and any start point of a walk (even if not a source); same with universal end
         source_nodes = [node for node, in_degree in self.in_degree() if in_degree == 0]
         sink_nodes = [node for node, out_degree in self.out_degree() if out_degree == 0]
 
-        for i in range(len(self.walks)):
-            if self.walks[i][0] in source_nodes:
-                self.walks[i] = ['start_node'] + self.walks[i]
-            if self.walks[i][-1] in sink_nodes:
-                self.walks[i] = self.walks[i] + ['end_node']
-
-        print("Total node with in-degree 0",len(source_nodes))
         self.start_node = 'start_node'
         self.add_node(self.start_node)
         self.end_node = 'end_node'
         self.add_node(self.end_node)
 
-        print('adding source edge')
         for source_node in source_nodes:
             self.add_edge(self.start_node, source_node, weight=0)
-        print('adding sink edge')
+
         for sink_node in sink_nodes:
             self.add_edge(sink_node, self.end_node, weight=0)
+
+        for i in range(len(self.walks)):
+            self.walks[i] = ['start_node'] + self.walks[i]
+            self.walks[i] = self.walks[i] + ['end_node']
+            if not self.has_edge(self.start_node, self.walks[i][1]):
+                self.add_edge(self.start_node, self.walks[i][1], weight=1)
+            if not self.has_edge(self.walks[i][-2], self.end_node):
+                self.add_edge(self.walks[i][-2], self.end_node, weight=1)
+
 
     def annotate_start_and_end(self):
 
@@ -104,10 +106,19 @@ class DiED_Graph(nx.DiGraph):
         for walk in self.walks:
             if len(walk) < 2:
                 continue
-            first_node = walk[1] # first after start_node
+            first_node = walk[1]
             last_node = walk[-2]
-            self[self.start_node][first_node]['weight'] += 1
-            self[last_node][self.end_node]['weight'] += 1
+            assert(walk[0] == self.start_node and walk[-1] == self.end_node)
+
+            if first_node in self[self.start_node]:
+                self[self.start_node][first_node]['weight'] += 1
+            else:
+                self.add_edge(self.start_node, first_node, weight=1)
+
+            if self.end_node in self[last_node]:
+                self[last_node][self.end_node]['weight'] += 1
+            else:
+                self.add_edge(last_node, self.end_node, weight=1)
 
         # All out-edges of start node are in both the ref tree and the ref dag
         for edge in self.out_edges(self.start_node):
@@ -300,10 +311,9 @@ class DiED_Graph(nx.DiGraph):
 
     def get_node_positions(self, direction):
         self.position[direction] = {u:-inf * (-1)**direction for u in self.reference_dag.nodes}
+
         for n, u in enumerate(self.reference_path):
             self.position[direction][u] = n
-        assert(self.position[direction][self.start_node] == 0)
-        assert(self.position[direction][self.end_node] > 0)
 
         if direction == 0:
             G = self.reference_dag
@@ -314,11 +324,10 @@ class DiED_Graph(nx.DiGraph):
         for u in order:
             pred = list(G.predecessors(u))
             pred.append(u)
-
-        if direction == 0:
-            self.position[direction][u] = np.max([self.position[direction][v] for v in pred])
-        else:
-            self.position[direction][u] = np.min([self.position[direction][v] for v in pred])
+            if direction == 0:
+                self.position[direction][u] = np.max([self.position[direction][v] for v in pred]).astype(int)
+            else:
+                self.position[direction][u] = np.min([self.position[direction][v] for v in pred]).astype(int)
 
 
     def find_path_to_linear_ref(self, bfs_tree, node):
