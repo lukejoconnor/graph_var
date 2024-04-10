@@ -45,11 +45,13 @@ class DiED_Graph(nx.DiGraph):
         print("finished adding source")
 
         # Add reference path
-        # TODO check that reference path has no duplicate vertices
+        # (Done)TODO check that reference path has no duplicate vertices
         if reference_path_index is not None:
             if reference_path_index >= self.num_walks or reference_path_index < 0:
                 raise ValueError(f'Reference walk index should be an integer >= 0 and < {self.num_walks}')
             self.reference_path = self.walks[reference_path_index]
+
+        assert len(self.reference_path) == len(set(self.reference_path)), "The reference path has duplicate vertices."
 
         if edgeinfo_file:
             # Read edgeinfo file and create reference tree and reference dag
@@ -71,14 +73,16 @@ class DiED_Graph(nx.DiGraph):
             self.add_reference(reference_walk_index=reference_path_index, spanning_forest_method=spanning_forest_method)
 
         # Add positions
+        print("Finish creating tree, start adding position")
         self.add_positions()
 
         # Call variants
+        print("Finish adding position, start counting variant")
         self.count_variants()
 
-    def add_source_and_sink_nodes(self): # TODO add edges between universal source and any start point of a walk (even if not a source); same with universal end
-        source_nodes = [node for node, in_degree in self.in_degree() if in_degree == 0]
-        sink_nodes = [node for node, out_degree in self.out_degree() if out_degree == 0]
+    def add_source_and_sink_nodes(self): # (Done)TODO add edges between universal source and any start point of a walk (even if not a source); same with universal end
+        source_nodes = set([node for node, in_degree in self.in_degree()])
+        sink_nodes = set([node for node, out_degree in self.out_degree()])
 
         self.start_node = 'start_node'
         self.add_node(self.start_node)

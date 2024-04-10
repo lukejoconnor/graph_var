@@ -20,6 +20,19 @@ def max_weight_dfs_tree(G: nx.DiGraph,
 
     # TODO add entire reference path, in order; then delete special handling
     stack = [(source, None)]  # Stack for DFS, storing (node, parent)
+    # stack += [(reference_path[i], reference_path[i - 1] if i > 0 else source) for i in range(len(reference_path))]
+
+    for i in range(len(reference_path)):
+        if i > 0:
+            stack.append((reference_path[i], reference_path[i - 1]))
+            ancestors.add(reference_path[i - 1])
+        if i > 1:
+            dfs_tree.add_edge(reference_path[i - 2], reference_path[i - 1],
+                              weight=G[reference_path[i - 2]][reference_path[i - 1]]['weight'])
+            ref_dag.add_edge(reference_path[i - 2], reference_path[i - 1],
+                             weight=G[reference_path[i - 2]][reference_path[i - 1]]['weight'])
+
+    last_visited_node = reference_path[-2]
 
     while stack:
         current_node, parent = stack.pop()
@@ -43,25 +56,25 @@ def max_weight_dfs_tree(G: nx.DiGraph,
             neighbors = sorted(G.edges(current_node, data=True), key=lambda x: x[2]['weight'], reverse=False)
 
             # Special handling for any edges contained in the reference path
-            reference_node = None
+            # reference_node = None
 
             # Last-added edges will be visited first
             for _, neighbor, _ in neighbors:
-                if (current_node, neighbor) in reference_path:
-                    assert(reference_node is None)
-                    reference_node = neighbor
-                    continue
-                stack.append((neighbor, current_node))
+                # if (current_node, neighbor) in reference_path:
+                #     assert(reference_node is None)
+                #     reference_node = neighbor
+                #     continue
+                # (current_node, neighbor) not in stack and
+                if current_node != neighbor and neighbor not in ancestors:
+                    stack.append((neighbor, current_node))
 
-            if reference_node is not None:
-                stack.append((reference_node, current_node))
+            # if reference_node is not None:
+            #     stack.append((reference_node, current_node))
 
             last_visited_node = current_node
 
         elif current_node not in ancestors:
             if parent is not None:
                 ref_dag.add_edge(parent, current_node, weight=G[parent][current_node]['weight'])
-
-
 
     return dfs_tree, ref_dag
