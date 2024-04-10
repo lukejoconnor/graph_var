@@ -25,27 +25,29 @@ class DiED_Graph(nx.DiGraph):
         self.num_walks: int = 0
         self.num_variants: int = 0
         self.genotypes: list = []
+        self.sequences: dict = {}
 
         if gfa_file is None:
             return
 
-        genes, edges, walks = read_gfa(gfa_file)
-        print("Num of Genes:", len(genes))
+        nodes, edges, walks, sequences = read_gfa(gfa_file)
+
+        print("Num of Genes:", len(nodes))
         print("Num of Edges:", len(edges))
-        for gene in genes:
-            self.add_dinode(gene)
+        for node in nodes:
+            self.add_dinode(node)
         for n, edge in enumerate(edges):
             self.add_diedge(edge[0], edge[1], edge[2], edge[3], n+1)
             self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]), -(n+1))
         self.walks = walks
         self.num_walks = len(walks)
+        self.sequences = {node: sequence for node, sequence in zip(nodes, sequences)}
 
         # Add universal source and sink nodes
         self.add_source_and_sink_nodes()
         print("finished adding source")
 
         # Add reference path
-        # (Done)TODO check that reference path has no duplicate vertices
         if reference_path_index is not None:
             if reference_path_index >= self.num_walks or reference_path_index < 0:
                 raise ValueError(f'Reference walk index should be an integer >= 0 and < {self.num_walks}')
@@ -80,7 +82,19 @@ class DiED_Graph(nx.DiGraph):
         print("Finish adding position, start counting variant")
         self.count_variants()
 
-    def add_source_and_sink_nodes(self): # (Done)TODO add edges between universal source and any start point of a walk (even if not a source); same with universal end
+    def find_snps(self):
+        variant_length = {v: self.position[1][v[1]] - self.position[0][v[0]] for v in self.variant_edges}
+        snps = np.where(variant_length.values() == 2)
+        # TODO check that the sequences associated with the SNP have length 1
+        # TODO add ref/alt as a dict mapping from each SNP edge to a tuple
+        return snps
+
+    # TODO annotate variant edges as either dup, del, replacement depending on DAG (may need to modify DFS algorithm
+    #  to distinguish forward from crossing edges)
+    def annotate_variants(self):
+        return
+
+    def add_source_and_sink_nodes(self):
         source_nodes = set([node for node, in_degree in self.in_degree()])
         sink_nodes = set([node for node, out_degree in self.out_degree()])
 
@@ -283,7 +297,7 @@ class DiED_Graph(nx.DiGraph):
             if v in sources:
                 sources[v] += visit_count
             else:
-                sources[v] = visit_count # TODO correct?
+                sources[v] = visit_count
             for i in range(visit_count):
                 sinks.append(u)
 

@@ -8,6 +8,7 @@ def flip(s):
 
 def read_gfa(filename):
   nodes = []
+  sequences = []
   edges = []
   walks = []
   pattern = r'\w+|[<>]'
@@ -17,6 +18,7 @@ def read_gfa(filename):
           parts = line.strip().split('\t')
           if parts[0] == 'S':
               nodes.append(parts[1])
+              sequences.append(parts[2])
           elif parts[0] == 'L':
               edge = (parts[1], parts[3], parts[2], parts[4])
               edges.append(edge)
@@ -37,4 +39,4 @@ def read_gfa(filename):
                           node_ids.append(f'{match}_+')
               #node_ids.append('end_node')
               walks.append(node_ids)
-  return nodes, edges, walks
+  return nodes, edges, walks, sequences
