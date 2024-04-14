@@ -82,12 +82,25 @@ class DiED_Graph(nx.DiGraph):
         print("Finish adding position, start counting variant")
         self.count_variants()
 
+
     def find_snps(self):
         variant_length = {v: self.position[1][v[1]] - self.position[0][v[0]] for v in self.variant_edges}
-        snps = np.where(variant_length.values() == 2)
+        snps = [key for key, value in variant_length.items() if value == 2]
+        alt_nodes = [var_edge[0] for var_edge in snps]
+        ref_nodes = [self.reference_path[self.position[0][alt_node] + 1] for alt_node in alt_nodes]
+
+        valid_snps = {}
+        for idx, (alt_node, ref_node) in enumerate(zip(alt_nodes, ref_nodes)):
+            if alt_node != 'start_node':
+                alt_seq = self.sequences[alt_node.split('_')[0]]
+                ref_seq = self.sequences[ref_node.split('_')[0]]
+                if len(alt_seq) == 1 and len(ref_seq) == 1:
+                    ref_pos = self.position[0][alt_node] + 1
+                    valid_snps[snps[idx]] = (ref_pos, ref_seq, alt_seq)
+
         # TODO check that the sequences associated with the SNP have length 1
         # TODO add ref/alt as a dict mapping from each SNP edge to a tuple
-        return snps
+        return valid_snps
 
     # TODO annotate variant edges as either dup, del, replacement depending on DAG (may need to modify DFS algorithm
     #  to distinguish forward from crossing edges)
