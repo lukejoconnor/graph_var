@@ -2,87 +2,135 @@ from math import inf
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
-from utils import flip, read_gfa
+from utils import _flip, read_gfa, _node_complement, _edge_complement
 from search_tree import max_weight_dfs_tree
 from kruskal import kruskal_mst
+import os
 # from icecream import ic
 
+# TODO ensure null inversions don't break code
+class PangenomeGraph(nx.DiGraph):
+    reference_tree: nx.classes.digraph.DiGraph
+    reference_path: list[str]
+    variant_edges: set
+    number_of_biedges: int  # Needed because nx.number_of_edges() runs in O(number of edges)
 
-class DiED_Graph(nx.DiGraph):
+    # A valid walk proceeds from either +_terminus_+ to -_terminus_+ or from -_terminus_- to +_terminus_-
+    @property
+    def termini(self) -> tuple[str, str]:
+        return ('+_terminus', '-_terminus')
+
+    @property
+    def biedge_representatives(self) -> list[str]:
+        edges = [edge_with_data for edge_with_data in self.edges(data=True) if edge_with_data[2]['is_representative']]
+        return sorted(edges, key=lambda edge: edge[2]['index'])
+
+    @property
+    def biedge_attribute_names(self) -> tuple:
+        return 'index', 'weight', 'is_in_tree', 'is_back_edge'
+        # TODO add 'is_in_reference_path'
+
+    @property
+    def node_attribute_names(self) -> tuple:
+        return 'direction', 'sequence', 'position'
+
     def __init__(self,
-                 gfa_file: str = None,
+                 directed_graph: nx.classes.digraph.DiGraph = nx.DiGraph(),
+                 reference_tree: nx.classes.digraph.DiGraph = nx.DiGraph(),
+                 reference_path: list[str] = [],
+                 variant_edges: set = {}):
+
+        super().__init__(directed_graph)
+        self.reference_tree = reference_tree
+        self.reference_path = reference_path
+        self.variant_edges = variant_edges
+        self.number_of_biedges = self.number_of_edges() // 2
+
+    @classmethod
+    def from_gfa(cls,
+                 gfa_file: str,
                  edgeinfo_file: str = None,
                  reference_path_index: int = None,
-                 spanning_forest_method: str = 'dfs'
+                 return_walks: bool = False
                  ):
-        super(DiED_Graph, self).__init__()
-        self.reference_tree: nx.classes.digraph.DiGraph = nx.DiGraph()
-        self.reference_dag: nx.classes.digraph.DiGraph = nx.DiGraph()
-        self.variant_edges: set = set()
-        self.walks: list = []
-        self.reference_path: list = []
-        self.position: dict = {}
-        self.num_walks: int = 0
-        self.num_variants: int = 0
-        self.genotypes: list = []
-        self.sequences: dict = {}
 
-        if gfa_file is None:
-            return
+        if not os.path.exists(gfa_file):
+            raise FileNotFoundError(gfa_file)
+        if edgeinfo_file:
+            if not os.path.exists(edgeinfo_file):
+                raise FileNotFoundError(edgeinfo_file)
 
         nodes, edges, walks, sequences = read_gfa(gfa_file)
 
-        print("Num of Genes:", len(nodes))
+        print("Num of Nodes:", len(nodes))
         print("Num of Edges:", len(edges))
-        for node in nodes:
-            self.add_dinode(node)
-        for n, edge in enumerate(edges):
-            self.add_diedge(edge[0], edge[1], edge[2], edge[3], n+1)
-            self.add_diedge(edge[1], edge[0], flip(edge[3]), flip(edge[2]), -(n+1))
-        self.walks = walks
-        self.num_walks = len(walks)
-        self.sequences = {node: sequence for node, sequence in zip(nodes, sequences)}
 
-        # Add universal source and sink nodes
-        self.add_source_and_sink_nodes()
-        print("finished adding source")
+        # Initialize an instance of the class
+        G = cls()
+
+        for node, sequence in zip(nodes, sequences):
+            G.add_binode(node, sequence)
+
+        for edge in edges:
+            G.add_biedge(edge[0] + '_' + edge[2], edge[1] + '_' + edge[3])
+
+        # Add universal source and sink nodes, also adding terminal edges for each walk
+        walk_start_nodes = [walk[0] for walk in walks]
+        walk_end_nodes = [walk[-1] for walk in walks]
+        G.add_terminal_nodes(walk_start_nodes=walk_start_nodes, walk_end_nodes=walk_end_nodes)
+
+        print("Finished adding start/end nodes")
 
         # Add reference path
         if reference_path_index is not None:
-            if reference_path_index >= self.num_walks or reference_path_index < 0:
-                raise ValueError(f'Reference walk index should be an integer >= 0 and < {self.num_walks}')
-            self.reference_path = self.walks[reference_path_index]
+            if reference_path_index >= len(walks) or reference_path_index < 0:
+                raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
 
-        assert len(self.reference_path) == len(set(self.reference_path)), "The reference path has duplicate vertices."
+            G.add_reference_path([G.termini[0]+'_+'] + walks[reference_path_index] + [G.termini[1]+'_+'])
+
+        else:
+            G.reference_path = nx.shortest_path(G, source=G.termini[0]+'_+', target=G.termini[1]+'_+')
+
+        assert len(G.reference_path) == len(set(G.reference_path)), "The reference path has duplicate vertices."
 
         if edgeinfo_file:
             # Read edgeinfo file and create reference tree and reference dag
-            self.read_edgeinfo(edgeinfo_file)
-
-            # Because edges involving start + end nodes are not in the edge_info file, annotate them now
-            print("Start annotating")
-            self.annotate_start_and_end()
-
-            all_edges = set(self.edges())
-            reference_edges = set(self.reference_tree.edges())
-            self.variant_edges = all_edges.difference(reference_edges)
+            G.read_edgeinfo(edgeinfo_file)
         else:
             # Add weights to edges
             print("Start adding weights")
-            self.add_weights()
+            G.compute_edge_weights(walks)
             print("Finish adding weights, start creating tree")
-            # Create spanning tree
-            self.add_reference(reference_walk_index=reference_path_index, spanning_forest_method=spanning_forest_method)
+
+            # Create spanning tree and define variant edges
+            G.compute_reference_tree()
 
         # Add positions
         print("Finish creating tree, start adding position")
-        self.add_positions()
+        G.compute_node_positions()
 
-        # Call variants
-        print("Finish adding position, start counting variant")
-        self.count_variants()
+        if return_walks:
+            return G, walks
 
+        return G
 
+    def add_reference_path(self, reference_path: list):
+        self.reference_path = reference_path
+
+        # Define direction of the reference path to be positive
+        for node in reference_path:
+            if self.nodes[node]['direction'] == -1:
+                self.nodes[node]['direction'] = 1
+                self.nodes[_node_complement(node)]['direction'] = -1
+
+        # Ensure first and last reference path edges are in the graph
+        if not self.has_edge(reference_path[0], reference_path[1]):
+            self.add_biedge(reference_path[0], reference_path[1])
+
+        if not self.has_edge(reference_path[-2], reference_path[-1]):
+            self.add_biedge(reference_path[-2], reference_path[-1])
+
+    # TODO update find_snps
     def find_snps(self):
         variant_length = {v: self.position[1][v[1]] - self.position[0][v[0]] for v in self.variant_edges}
         snps = [key for key, value in variant_length.items() if value == 2]
@@ -98,238 +146,256 @@ class DiED_Graph(nx.DiGraph):
                     ref_pos = self.position[0][alt_node] + 1
                     valid_snps[snps[idx]] = (ref_pos, ref_seq, alt_seq)
 
-        # TODO check that the sequences associated with the SNP have length 1
-        # TODO add ref/alt as a dict mapping from each SNP edge to a tuple
         return valid_snps
 
     # TODO annotate variant edges as either dup, del, replacement depending on DAG (may need to modify DFS algorithm
     #  to distinguish forward from crossing edges)
+    # TODO add ref/alt as a dict mapping from each SNP edge to a tuple
     def annotate_variants(self):
         return
 
-    def add_source_and_sink_nodes(self):
-        source_nodes = set([node for node, in_degree in self.in_degree()])
-        sink_nodes = set([node for node, out_degree in self.out_degree()])
 
-        self.start_node = 'start_node'
-        self.add_node(self.start_node)
-        self.end_node = 'end_node'
-        self.add_node(self.end_node)
+    def add_terminal_nodes(self, walk_start_nodes: list[str]=None, walk_end_nodes: list[str]=None):
+
+        source_nodes = {node for node, degree in self.in_degree()
+                            if degree == 0 and self.nodes[node]['direction'] == 1}
+
+        sink_nodes = {node for node, degree in self.out_degree()
+                          if degree == 0 and self.nodes[node]['direction'] == 1}
+
+        if walk_start_nodes:
+            source_nodes = source_nodes.union(
+                {node for node in walk_start_nodes if self.nodes[node]['direction'] == 1}
+            )
+            sink_nodes = sink_nodes.union(
+                {_node_complement(node) for node in walk_start_nodes if self.nodes[node]['direction'] == -1}
+            )
+        if walk_end_nodes:
+            sink_nodes = sink_nodes.union(
+                {node for node in walk_end_nodes if self.nodes[node]['direction'] == 1}
+            )
+            source_nodes = source_nodes.union(
+                {_node_complement(node) for node in walk_end_nodes if self.nodes[node]['direction'] == -1}
+            )
+
+        start_node, end_node = self.termini
+        self.add_binode(start_node)
+        self.add_binode(end_node)
 
         for source_node in source_nodes:
-            self.add_edge(self.start_node, source_node, weight=0)
+            self.add_biedge(start_node + '_+', source_node)
 
         for sink_node in sink_nodes:
-            self.add_edge(sink_node, self.end_node, weight=0)
+            self.add_biedge(sink_node, end_node + '_+')
 
-        for i in range(len(self.walks)):
-            self.walks[i] = ['start_node'] + self.walks[i]
-            self.walks[i] = self.walks[i] + ['end_node']
-            if not self.has_edge(self.start_node, self.walks[i][1]):
-                self.add_edge(self.start_node, self.walks[i][1], weight=1)
-            if not self.has_edge(self.walks[i][-2], self.end_node):
-                self.add_edge(self.walks[i][-2], self.end_node, weight=1)
-
-
-    def annotate_start_and_end(self):
-
-        # Add weights to these edges
-        for walk in self.walks:
-            if len(walk) < 2:
-                continue
-            first_node = walk[1]
-            last_node = walk[-2]
-            assert(walk[0] == self.start_node and walk[-1] == self.end_node)
-
-            if first_node in self[self.start_node]:
-                self[self.start_node][first_node]['weight'] += 1
-            else:
-                self.add_edge(self.start_node, first_node, weight=1)
-
-            if self.end_node in self[last_node]:
-                self[last_node][self.end_node]['weight'] += 1
-            else:
-                self.add_edge(last_node, self.end_node, weight=1)
-
-        # All out-edges of start node are in both the ref tree and the ref dag
-        for edge in self.out_edges(self.start_node):
-            u,v = edge
-            self.reference_dag.add_edge(u,v)
-            self.reference_tree.add_edge(u,v)
-
-        # All in-edges of the end node are in the ref dag
-        for edge in self.in_edges(self.end_node):
-            u,v = edge
-            self.reference_dag.add_edge(u,v)
-
-        # Exactly one in-edge of the end node is in the ref tree
-        if len(self.reference_path) > 1:
-            # Pick the reference walk penultimate node
-            self.reference_tree.add_edge(self.reference_path[-2], self.end_node)
-        else:
-            # Pick the max-weight penultimate node
-            max_weight_end_edge = max(self.in_edges(self.end_node, data='weight'), key=lambda tup: tup[2])
-            self.reference_tree.add_edge(max_weight_end_edge[0], self.end_node)
-
-    def add_reference(self, reference_walk_index: int = None, spanning_forest_method: str = 'dfs'):
-
-        initial_reference_tree = nx.DiGraph()
+    def compute_reference_tree(self):
 
         # Construct reference tree and ref DAG
-        if spanning_forest_method == 'kruskal':
-            for u, v in zip(self.reference_path, self.reference_path[1:]):
-                # Step 3: Check if the edge exists in G and then add it to H with the same attributes
-                if self.has_edge(u, v):
-                    edge_attr = self[u][v]  # Get the attributes of the edge from G
-                    initial_reference_tree.add_edge(u, v, **edge_attr)  # Add the edge to H with the attributes
+        positive_subgraph = self.subgraph([n for n, attr in self.nodes(data=True) if attr.get('direction') == 1])
+        self.reference_tree, dfs_dag = max_weight_dfs_tree(positive_subgraph,
+                                                                      source=self.termini[0] + '_+',
+                                                                      reference_path=self.reference_path)
 
-            self.reference_tree = kruskal_mst(
-                self,
-                universal_source=self.start_node,
-                initial_graph=initial_reference_tree
-            )
-        elif spanning_forest_method == 'dfs':
-            self.reference_tree, self.reference_dag = max_weight_dfs_tree(self,
-                                                                          source=self.start_node,
-                                                                          reference_path=self.reference_path)
-        else:
-            raise ValueError(f"spanning_forest_method should be either 'kruskal' or 'dfs'")
+        # Annotate edges
+        for edge in positive_subgraph.edges():
+            self.edges[edge]['is_in_tree'] = self.reference_tree.has_edge(*edge)
+            self.edges[_edge_complement(edge)]['is_in_tree'] = self.reference_tree.has_edge(*edge)
+            self.edges[edge]['is_back_edge'] = not dfs_dag.has_edge(*edge)
+            self.edges[_edge_complement(edge)]['is_back_edge'] = not dfs_dag.has_edge(*edge)
 
-        # All of the edges in the pangenome graph not in the reference tree
-        all_edges = set(self.edges())
-        reference_edges = set(self.reference_tree.edges())
-        self.variant_edges = all_edges.difference(reference_edges)
-        self.num_variants = len(self.variant_edges)
+        # Define variant edge representatives
+        self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
+                if data['is_representative'] and not data['is_in_tree']}
 
     def write_edgeinfo(self, filename: str) -> None:
         with open(filename, 'w') as file:
             # Write the header row
-            file.write("index,weight,in_reference_tree,in_reference_dag\n")
+            file.write(','.join(self.biedge_attribute_names) + '\n')
 
-            # Sort the edges by 'index' attribute for writing in sorted order
-            edges = [edge for edge in self.edges(data=True) if 'index' in edge[2]]
-            sorted_edges = sorted(edges, key=lambda edge: edge[2]['index'])
+            # Sort the edges by 'index' attribute, restricting to representatives
+            sorted_edges = self.biedge_representatives
 
-            for edge in sorted_edges:
-                u, v, data = edge
-                weight = data['weight']
-                index = data['index']
-
-                # Check if the edge is in the reference_tree
-                in_ref_tree = 1 if self.reference_tree.has_edge(u, v) else 0
-
-                # Check if the edge is in the reference_dag
-                in_ref_dag = 1 if self.reference_dag.has_edge(u, v) else 0
-
-                # Write the edge information to the file
-                file.write(f"{index},{weight},{in_ref_tree},{in_ref_dag}\n")
+            for n, edge in enumerate(sorted_edges):
+                _, _, data = edge
+                assert n == data['index'], 'Something is wrong with edge indices'
+                # Write the edge information to the file; map True->'1', False->'0'
+                edge_data_list = [str(int(data[key])) for key in self.biedge_attribute_names]
+                file.write(','.join(edge_data_list) + '\n')
 
     def read_edgeinfo(self, filename: str) -> None:
 
-        weight = np.zeros(2 * self.number_of_edges(), dtype=np.int32)
-        in_reference_tree = np.zeros(2 * self.number_of_edges(), dtype=np.int32)
-        in_reference_dag = np.zeros(2 * self.number_of_edges(), dtype=np.int32)
+        sorted_edges = self.biedge_representatives
 
         # Read the file
         with open(filename, 'r') as file:
-            # Skip the header row
-            next(file)
-
-            for line in file:
+            header = next(file).strip().split(',')
+            for n, line in enumerate(file):
                 # Split the line into components
                 parts = line.strip().split(',')
-                assert(len(parts) == 4)
+
+                # Find the edge represenative with index == n
+                edge = sorted_edges[n][:-1]
+                assert self.edges[edge]['index'] == n
 
                 # Extract the edge info
-                index = int(parts[0])
-                weight[index] = int(parts[1])
-                in_reference_tree[index] = int(parts[2])
-                in_reference_dag[index] = int(parts[3])
+                for i, key in enumerate(self.biedge_attribute_names):
+                    self.edges[edge][key] = int(parts[i])
+                    self.edges[_edge_complement(edge)][key] = int(parts[i])
 
-        # Use the edge info to add weights, create ref tree + ref dag
-        for edge in self.edges(data=True):
-            u, v, data = edge
-            if 'index' not in data:
+        # Define variant edge representatives
+        self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
+                              if data['is_representative'] and not data['is_in_tree']}
+
+        # Define reference tree
+        for edge in self.edges(data='is_in_tree'):
+            if not edge[2]:  # not in tree
                 continue
-            idx = self[u][v]['index']
-            self[u][v]['weight'] = weight[idx]
-            if in_reference_dag[idx] == 0:
-                continue # also not in ref tree
-            self.reference_dag.add_edge(u, v)
-            if in_reference_tree[idx] == 0:
+
+            # Only include forward direction nodes
+            if self.nodes[edge[0]]['direction'] == 1:
+                self.reference_tree.add_edge(*edge[:-1])
+
+    def add_binode(self, node: str, seq: str = ''):
+        node_data = {key: 0 for key in self.node_attribute_names}
+        node_data['sequence'] = seq
+        node_data['direction'] = 1
+
+        self.add_node(str(node)+'_+', **node_data)
+
+        node_data['sequence'] = reversed(seq)
+        node_data['direction'] = -1
+
+        self.add_node(str(node)+'_-', **node_data)
+
+    def add_biedge(self, node1: str, node2: str, *, weight: int = 0):
+
+        if self.has_edge(node1, node2):
+            raise ValueError(f'Attempted to add duplicate biedge: {node1}, {node2}')
+
+        edge_data = {key: 0 for key in self.biedge_attribute_names}
+        edge_data['weight'] = weight
+        edge_data['index'] = self.number_of_biedges
+        edge_data['is_representative'] = True
+
+        self.add_edge(node1, node2, **edge_data)
+        edge_data['is_representative'] = False
+        self.add_edge(_node_complement(node2), _node_complement(node1), **edge_data)
+
+        self.number_of_biedges += 1
+
+    def representative_edge(self, edge: tuple):
+        return edge if self.edges[edge]['is_representative'] else _edge_complement(edge)
+
+    def compute_edge_weights(self, walks):
+        for walk in walks:
+
+            for u, v in zip(walk[:-1], walk[1:]):
+                self.edges[u, v]['weight'] += 1
+                self.edges[_node_complement(v), _node_complement(u)]['weight'] += 1
+
+    def genotype(self, walk: list[str]) -> dict:
+
+        # Append start and end nodes to walk
+        start = [self.termini[0] + '_+' if self.nodes[walk[0]]['direction'] == 1 else self.termini[1] + '_-']
+        end = [self.termini[1] + '_+' if self.nodes[walk[-1]]['direction'] == 1 else self.termini[0] + '_-']
+        walk = start + walk + end
+
+        genotype = {}
+        for e in zip(walk[:-1], walk[1:]):
+            if not self.has_edge(*e):
+                raise ValueError(f"Specified list contains edge {e} which is not present in the graph")
+
+            if self.edges[e]['is_in_tree']:
                 continue
-            self.reference_tree.add_edge(u, v)
 
-    def add_positions(self):
-        if self.reference_dag.number_of_nodes() < self.number_of_nodes():
-            raise ValueError('Reference DAG does not have enough nodes, probably because it is not defined')
+            if not self.edges[e]['is_representative']:
+                e = _edge_complement(e)
 
-        # Define node positions
-        for direction in range(2):
-            self.get_node_positions(direction)
-
-        # Check consistency of node positions
-        for node in self.reference_dag.nodes():
-            assert (self.position[0][node] <= self.position[1][node])
-
-    def add_dinode(self, gene, seq=''):
-        self.add_node(str(gene)+'_+', sequence=seq, direction='+')
-        self.add_node(str(gene)+'_-', sequence=seq, direction='-')
-
-    def add_diedge(self, gene1, gene2, direction1, direction2, n):
-        self.add_edge(str(gene1)+'_'+direction1, str(gene2)+'_'+direction2, weight=0, index=n)
-
-    def add_weights(self):
-        for walk_list in self.walks:
-            for i in range(int(len(walk_list))-1):
-                #print(self.edges)
-                self.edges[walk_list[i], walk_list[i+1]]['weight'] += 1
-
-    def count_variants(self):
-        self.genotypes = [{} for i in range(self.num_walks)]
-        for individual in range(self.num_walks):
-            walk_list = self.walks[individual]
-            for i in range(len(walk_list) - 1):
-                edge = walk_list[i], walk_list[i + 1]
-                if edge not in self.variant_edges:
-                    continue
-
-                if edge in self.genotypes[individual]:
-                    self.genotypes[individual][edge] += 1
-                else:
-                    self.genotypes[individual][edge] = 1
-
-    def count_edge_visits(self, geno: dict) -> dict:
-
-        sources = {self.start_node: 1}
-        sinks = list([self.end_node])
-
-        # For alternative alleles (u,v), add v to the set of "sources" and u to the set of "sinks"
-        for variant_edge, visit_count in geno.items():
-            u,v = variant_edge
-            if v in sources:
-                sources[v] += visit_count
+            if e in genotype:
+                genotype[e] += 1
             else:
-                sources[v] = visit_count
-            for i in range(visit_count):
-                sinks.append(u)
+                genotype[e] = 1
 
-        edge_visits = geno.copy()
+        return genotype
+
+    def count_edge_visits(self, genotype: dict) -> dict:
+
+        # WLOG walk ends at the - terminus
+        sinks: list[str] = []
+
+        # Where walk starts will depend on the parity of the number of inversions
+        inversion_count = 0
+        sources: dict[str, int] = {}
+
+        # Add variant edge endpoints as sources or sinks depending on their respective directions
+        for variant_edge, visit_count in genotype.items():
+
+            if variant_edge not in self.variant_edges:
+                raise ValueError("geno dictionary contains a key which is not a variant edge")
+
+            u, v = variant_edge
+            dir_u, dir_v = self.nodes[u]['direction'], self.nodes[v]['direction']
+            inversion_count += 1 if dir_u*dir_v == -1 else 0
+
+            new_sinks = []
+            new_sources = []
+            if dir_u == 1:
+                new_sinks.append(u)
+            else:
+                new_sources.append(_node_complement(u))
+            if dir_v == 1:
+                new_sources.append(v)
+            else:
+                new_sinks.append(_node_complement(v))
+
+            for w in new_sources:
+                if w in sources:
+                    sources[w] += visit_count
+                else:
+                    sources[w] = visit_count
+
+            for w in new_sinks:
+                for i in range(visit_count):
+                    sinks.append(w)
+
+
+        # Add sink and source nodes for the beginning and end of the walk, depending on the number of inversions
+        num_sources_minus_sinks = np.sum([val for _, val in sources.items()]) - len(sinks)
+
+        # Equal number of + to - and - to + inversions: walk from + terminus to - terminus
+        if num_sources_minus_sinks == 0:
+            sources[self.termini[0] + '_+'] = 1
+            sinks.append(self.termini[1] + '_+')
+
+        # Odd number of inversions, with one more from + to - strand: walk from - to -
+        elif num_sources_minus_sinks == 2:
+            sinks.append(self.termini[1] + '_+')
+            sinks.append(self.termini[1] + '_+')
+
+        # Odd number of inversions, with one more from - to + strand: walk from + to +
+        elif num_sources_minus_sinks == -2:
+            sources[self.termini[0] + '_+'] = 2
+
+        else:
+            raise ValueError("The input genotype does not correspond to any valid walk")
+
+
+        edge_visits = genotype.copy()
         for sink in sinks:
             # Walk up the tree (in the only possible direction) until reaching a source
             current_node = sink
             while current_node not in sources:
                 # If current_node is the root, it means that the input genotype was invalid
-                if current_node == self.start_node:
+                if self.reference_tree.in_degree(current_node) == 0:
                     raise ValueError("The input genotype does not correspond to any valid walk")
 
-                # Increment the counter
                 previous_node = current_node
                 current_node = next(self.reference_tree.predecessors(current_node))
-                if (current_node, previous_node) in edge_visits:
-                    edge_visits[(current_node, previous_node)] += 1
+                edge_representative = self.representative_edge((current_node, previous_node))
+                if edge_representative in edge_visits:
+                    edge_visits[edge_representative] += 1
                 else:
-                    edge_visits[(current_node, previous_node)] = 1
+                    edge_visits[edge_representative] = 1
 
             # when reaching the source, it is "used up"
             if sources[current_node] == 1:
@@ -339,55 +405,19 @@ class DiED_Graph(nx.DiGraph):
 
         return edge_visits
 
-
-    def get_node_positions(self, direction):
-        self.position[direction] = {u:-inf * (-1)**direction for u in self.reference_dag.nodes}
+    def compute_node_positions(self):
+        # TODO should position be w.r.t. node count or sequence length?
+        # TODO also compute forward position? Needed for anything except defining SNPs?
+        for node in self.reference_tree.nodes():
+            self.nodes[node]['position'] = -inf
 
         for n, u in enumerate(self.reference_path):
-            self.position[direction][u] = n
+            self.nodes[u]['position'] = n
 
-        if direction == 0:
-            G = self.reference_dag
-        else:
-            G = self.reference_dag.reverse()
-
-        order = nx.topological_sort(G)
+        order = nx.topological_sort(self.reference_tree)
+        next(order)  # skip the root
         for u in order:
-            pred = list(G.predecessors(u))
-            pred.append(u)
-            if direction == 0:
-                self.position[direction][u] = np.max([self.position[direction][v] for v in pred]).astype(int)
-            else:
-                self.position[direction][u] = np.min([self.position[direction][v] for v in pred]).astype(int)
-
-
-    def find_path_to_linear_ref(self, bfs_tree, node):
-        current = node
-        while current not in self.linear_reference + [self.start_node]:
-            # In a BFS tree, each node except the root has exactly one predecessor
-            preds = list(bfs_tree.predecessors(current))
-            current = preds[0]
-        return current
-
-    def show(self, G, i_pos=None):
-        if i_pos is None:
-            pos = nx.spring_layout(G)
-        else:
-            pos = i_pos
-
-        plt.figure(figsize=(15,10))
-        # Draw the graph
-        nx.draw_networkx_nodes(G, pos, node_color='white', node_shape='o', edgecolors='black', node_size=500)
-
-        # Draw edges
-        for edge, key in enumerate(G.edges):
-            if key[2] == 'r':
-                nx.draw_networkx_edges(G, pos, arrows=True, arrowstyle='-', edgelist=[key], connectionstyle=f'arc3,rad={0}', edge_color='red')
-            else:
-                nx.draw_networkx_edges(G, pos, arrows=True, arrowstyle='-', edgelist=[key], connectionstyle=f'arc3,rad={0.30}', edge_color='black')
-
-        # Draw node labels
-        nx.draw_networkx_labels(G, pos, font_size=8)
-
-        # Show plot
-        plt.show()
+            predecessor = next(self.reference_tree.predecessors(u))
+            self.nodes[u]['position'] = np.maximum(self.nodes[u]['position'],
+                                               self.nodes[predecessor]['position'])
+            self.nodes[_node_complement(u)]['position'] = self.nodes[u]['position']
