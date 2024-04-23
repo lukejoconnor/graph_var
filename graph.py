@@ -1,14 +1,10 @@
 from math import inf
 import networkx as nx
-import matplotlib.pyplot as plt
 import numpy as np
 from utils import _flip, read_gfa, _node_complement, _edge_complement
 from search_tree import max_weight_dfs_tree
-from kruskal import kruskal_mst
 import os
-# from icecream import ic
 
-# TODO ensure null inversions don't break code
 class PangenomeGraph(nx.DiGraph):
     reference_tree: nx.classes.digraph.DiGraph
     reference_path: list[str]
@@ -28,7 +24,7 @@ class PangenomeGraph(nx.DiGraph):
     @property
     def biedge_attribute_names(self) -> tuple:
         return 'index', 'weight', 'is_in_tree', 'is_back_edge'
-        # TODO add 'is_in_reference_path'
+        # TODO add 'is_in_reference_path' such that we can load with edgeinfo file not specifying reference walk index
 
     @property
     def node_attribute_names(self) -> tuple:
@@ -38,13 +34,16 @@ class PangenomeGraph(nx.DiGraph):
                  directed_graph: nx.classes.digraph.DiGraph = nx.DiGraph(),
                  reference_tree: nx.classes.digraph.DiGraph = nx.DiGraph(),
                  reference_path: list[str] = [],
-                 variant_edges: set = {}):
+                 variant_edges: set = {}
+                 ):
 
         super().__init__(directed_graph)
         self.reference_tree = reference_tree
         self.reference_path = reference_path
         self.variant_edges = variant_edges
-        self.number_of_biedges = self.number_of_edges() // 2
+        self.number_of_biedges = np.sum(
+            [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
+        )
 
     @classmethod
     def from_gfa(cls,
@@ -131,6 +130,7 @@ class PangenomeGraph(nx.DiGraph):
             self.add_biedge(reference_path[-2], reference_path[-1])
 
     # TODO update find_snps
+    # TODO is there a definition of ref/alt that yields a SNP annotation immediately?
     def find_snps(self):
         variant_length = {v: self.position[1][v[1]] - self.position[0][v[0]] for v in self.variant_edges}
         snps = [key for key, value in variant_length.items() if value == 2]
@@ -275,12 +275,10 @@ class PangenomeGraph(nx.DiGraph):
         edge_data = {key: 0 for key in self.biedge_attribute_names}
         edge_data['weight'] = weight
         edge_data['index'] = self.number_of_biedges
-        edge_data['is_representative'] = True
-
-        self.add_edge(node1, node2, **edge_data)
         edge_data['is_representative'] = False
         self.add_edge(_node_complement(node2), _node_complement(node1), **edge_data)
-
+        edge_data['is_representative'] = True
+        self.add_edge(node1, node2, **edge_data)
         self.number_of_biedges += 1
 
     def representative_edge(self, edge: tuple):
@@ -354,10 +352,7 @@ class PangenomeGraph(nx.DiGraph):
                 else:
                     sources[w] = visit_count
 
-            for w in new_sinks:
-                for i in range(visit_count):
-                    sinks.append(w)
-
+            sinks += visit_count * new_sinks
 
         # Add sink and source nodes for the beginning and end of the walk, depending on the number of inversions
         num_sources_minus_sinks = np.sum([val for _, val in sources.items()]) - len(sinks)
@@ -365,12 +360,11 @@ class PangenomeGraph(nx.DiGraph):
         # Equal number of + to - and - to + inversions: walk from + terminus to - terminus
         if num_sources_minus_sinks == 0:
             sources[self.termini[0] + '_+'] = 1
-            sinks.append(self.termini[1] + '_+')
+            sinks += [self.termini[1] + '_+']
 
         # Odd number of inversions, with one more from + to - strand: walk from - to -
         elif num_sources_minus_sinks == 2:
-            sinks.append(self.termini[1] + '_+')
-            sinks.append(self.termini[1] + '_+')
+            sinks += 2 * [self.termini[1] + '_+']
 
         # Odd number of inversions, with one more from - to + strand: walk from + to +
         elif num_sources_minus_sinks == -2:
