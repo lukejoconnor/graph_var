@@ -1,10 +1,18 @@
 import re
 
-def flip(s):
+def _node_complement(s: str):
+    return s[:-1] + _flip(s[-1])
+
+def _edge_complement(e: tuple[str, str]):
+    return _node_complement(e[1]), _node_complement(e[0])
+
+def _flip(s):
     if s == '+':
-      return '-'
+        return '-'
+    elif s == '-':
+        return '+'
     else:
-      return '+'
+        raise ValueError()
 
 def read_gfa(filename):
   nodes = []
