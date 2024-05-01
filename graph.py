@@ -5,6 +5,7 @@ from utils import _flip, read_gfa, _node_complement, _edge_complement
 from search_tree import max_weight_dfs_tree
 import os
 
+
 class PangenomeGraph(nx.DiGraph):
     reference_tree: nx.classes.digraph.DiGraph
     reference_path: list[str]
@@ -14,7 +15,7 @@ class PangenomeGraph(nx.DiGraph):
     # A valid walk proceeds from either +_terminus_+ to -_terminus_+ or from -_terminus_- to +_terminus_-
     @property
     def termini(self) -> tuple[str, str]:
-        return ('+_terminus', '-_terminus')
+        return '+_terminus', '-_terminus'
 
     @property
     def biedge_representatives(self) -> list[str]:
@@ -33,14 +34,14 @@ class PangenomeGraph(nx.DiGraph):
     def __init__(self,
                  directed_graph: nx.classes.digraph.DiGraph = nx.DiGraph(),
                  reference_tree: nx.classes.digraph.DiGraph = nx.DiGraph(),
-                 reference_path: list[str] = [],
-                 variant_edges: set = {}
+                 reference_path: list[str] = None,
+                 variant_edges: set = None
                  ):
 
         super().__init__(directed_graph)
         self.reference_tree = reference_tree
-        self.reference_path = reference_path
-        self.variant_edges = variant_edges
+        self.reference_path = reference_path if reference_path else []
+        self.variant_edges = variant_edges if variant_edges else {}
         self.number_of_biedges = np.sum(
             [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
         )
@@ -262,7 +263,7 @@ class PangenomeGraph(nx.DiGraph):
 
         self.add_node(str(node)+'_+', **node_data)
 
-        node_data['sequence'] = reversed(seq)
+        node_data['sequence'] = reversed(seq)# TODO map bases to complements
         node_data['direction'] = -1
 
         self.add_node(str(node)+'_-', **node_data)
@@ -318,11 +319,9 @@ class PangenomeGraph(nx.DiGraph):
 
     def count_edge_visits(self, genotype: dict) -> dict:
 
-        # WLOG walk ends at the - terminus
         sinks: list[str] = []
 
         # Where walk starts will depend on the parity of the number of inversions
-        inversion_count = 0
         sources: dict[str, int] = {}
 
         # Add variant edge endpoints as sources or sinks depending on their respective directions
@@ -333,7 +332,6 @@ class PangenomeGraph(nx.DiGraph):
 
             u, v = variant_edge
             dir_u, dir_v = self.nodes[u]['direction'], self.nodes[v]['direction']
-            inversion_count += 1 if dir_u*dir_v == -1 else 0
 
             new_sinks = []
             new_sources = []
