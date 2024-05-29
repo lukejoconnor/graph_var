@@ -1,5 +1,12 @@
 import re
 
+def _sequence_reversed_complement(s: str) -> str:
+    def _base_complement(letter: str) -> str:
+        base_dict: dict = {'A': 'T', 'C': 'G', 'T' : 'A', 'G': 'C'}
+        return base_dict[letter] if letter in base_dict else letter
+
+    return ''.join(_base_complement(c) for c in reversed(s))
+
 def _node_complement(s: str):
     return s[:-1] + _flip(s[-1])
 
