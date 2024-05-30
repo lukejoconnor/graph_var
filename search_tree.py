@@ -2,7 +2,7 @@ import networkx as nx
 
 def max_weight_dfs_tree(G: nx.DiGraph,
                         source: str,
-                        reference_path: list = []) -> tuple(nx.DiGraph, nx.DiGraph):
+                        reference_path: list = []) -> tuple[nx.DiGraph, nx.DiGraph]:
     """
     Perform a depth-first search (DFS) prioritizing higher weight edges and return a DFS tree.
 
@@ -37,7 +37,6 @@ def max_weight_dfs_tree(G: nx.DiGraph,
     step_counter = 0
     while stack:
         current_node, parent = stack.pop()
-        #ic(current_node, parent, last_visited_node, ancestors)
         if current_node not in visited:
             # visit current_node
             G.nodes[current_node]['first_visit'] = step_counter
