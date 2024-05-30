@@ -137,7 +137,6 @@ class PangenomeGraph(nx.DiGraph):
             self.add_biedge(reference_path[-2], reference_path[-1])
 
     # TODO update find_snps
-    # TODO is there a definition of ref/alt that yields a SNP annotation immediately?
     def find_snps(self):
         variant_length = {v: self.position[1][v[1]] - self.position[0][v[0]] for v in self.variant_edges}
         snps = [key for key, value in variant_length.items() if value == 2]
@@ -154,12 +153,6 @@ class PangenomeGraph(nx.DiGraph):
                     valid_snps[snps[idx]] = (ref_pos, ref_seq, alt_seq)
 
         return valid_snps
-
-    # TODO annotate variant edges as either dup, del, replacement depending on DAG (may need to modify DFS algorithm
-    #  to distinguish forward from crossing edges)
-    # TODO add ref/alt as a dict mapping from each SNP edge to a tuple
-    def annotate_variants(self):
-        return
 
 
     def add_terminal_nodes(self, walk_start_nodes: list[str]=None, walk_end_nodes: list[str]=None):
@@ -219,6 +212,7 @@ class PangenomeGraph(nx.DiGraph):
         Yields the ref and alt allele for variant
         """
 
+        # TODO think about inversions
         non_inversion_variants = [(u, v) for u, v in self.variant_edges
                                   if self.nodes[u]['direction'] == self.nodes[v]['direction']]
 
@@ -248,23 +242,31 @@ class PangenomeGraph(nx.DiGraph):
             ref_path = nx.shortest_path(reversed_tree, v, branch_point)
             alt_path = nx.shortest_path(reversed_tree, u, branch_point)
 
-            # ref allele only includes internal nodes on the ref path
-            ref_allele = ''
-            for node in ref_path[-2:0:-1]:
-                ref_allele += self.nodes[node]['sequence']
-
-            # alt allele excludes the branch point, but includes u; if branch point equals u, includes u.
-            if len(alt_path) > 1:
+            # alt allele sometimes includes and sometime excludes the branch point and u, depending on edge type
+            # TODO add annotations for is_forward_edge vs is_crossing_edge
+            is_back_edge = branch_point == v
+            is_forward_edge = branch_point == u
+            if is_back_edge:
+                alt_path = alt_path[::-1]
+            elif is_forward_edge:
+                alt_path = []
+            else:
                 alt_path = alt_path[-1:0:-1]
+
+            # ref path always excludes both the branch point and v
+            ref_path = ref_path[-2:0:-1]
+
             alt_allele = ''
             for node in alt_path:
                 alt_allele += self.nodes[node]['sequence']
 
-            yield (edge, ref_allele, alt_allele)
+            ref_allele = ''
+            for node in ref_path:
+                ref_allele += self.nodes[node]['sequence']
 
+            last_letter_of_branch_point = self.nodes[branch_point]['sequence'][-1]
 
-
-
+            yield edge, (ref_allele, alt_allele), last_letter_of_branch_point
 
     def write_edgeinfo(self, filename: str) -> None:
         with open(filename, 'w') as file:
