@@ -24,13 +24,17 @@ class PangenomeGraph(nx.DiGraph):
 
     @property
     def biedge_attribute_names(self) -> tuple:
-        return 'index', 'weight', 'is_in_tree', 'is_back_edge'
+        return 'index', 'weight', 'is_in_tree', 'is_back_edge', 'is_forward_edge', 'is_crossing_edge'
         # TODO add 'is_in_reference_path' such that we can load with edgeinfo file not specifying reference walk index
     #     TODO add 'position'
 
     @property
     def node_attribute_names(self) -> tuple:
         return 'direction', 'sequence', 'position', 'forward_position'
+
+    @property
+    def vcf_attribute_names(self) -> tuple:
+        return 'CHR', 'REF', 'ALT', 'POS u', 'POS v', 'Non Linear REF'
 
     def __init__(self,
                  directed_graph: nx.classes.digraph.DiGraph = None,
@@ -55,7 +59,8 @@ class PangenomeGraph(nx.DiGraph):
                  gfa_file: str,
                  edgeinfo_file: str = None,
                  reference_path_index: int = None,
-                 return_walks: bool = False
+                 return_walks: bool = False,
+                 compressed: bool = False
                  ):
 
         if not os.path.exists(gfa_file):
@@ -64,7 +69,7 @@ class PangenomeGraph(nx.DiGraph):
             if not os.path.exists(edgeinfo_file):
                 raise FileNotFoundError(edgeinfo_file)
 
-        binodes, biedges, walks, sequences = read_gfa(gfa_file)
+        binodes, biedges, walks, sequences = read_gfa(gfa_file, compressed=compressed)
 
         print("Num of binodes:", len(binodes))
         print("Num of biedges:", len(biedges))
@@ -135,6 +140,17 @@ class PangenomeGraph(nx.DiGraph):
 
         if not self.has_edge(reference_path[-2], reference_path[-1]):
             self.add_biedge(reference_path[-2], reference_path[-1])
+
+    def in_reference_walk(self, ref_path):
+        if ref_path[0] in self.reference_path:
+            index_0 = self.reference_path.index(ref_path[0])
+            if ref_path[-1] == self.reference_path[index_0+len(ref_path)-1]:
+                return True
+            else:
+                return False
+        else:
+            return False
+
 
     # TODO update find_snps
     def find_snps(self):
@@ -207,66 +223,30 @@ class PangenomeGraph(nx.DiGraph):
         self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
                 if data['is_representative'] and not data['is_in_tree']}
 
-    def compute_alleles(self) -> tuple:
-        """
-        Yields the ref and alt allele for variant
-        """
+    def write_vcf(self, filename: str) -> None:
+        with open(filename, 'w') as file:
+            # Write the header row
+            file.write(','.join(self.vcf_attribute_names) + '\n')
 
-        # TODO think about inversions
-        non_inversion_variants = [(u, v) for u, v in self.variant_edges
-                                  if self.nodes[u]['direction'] == self.nodes[v]['direction']]
+            for edge, (ref_allele, alt_allele), last_letter_of_branch_point, is_in_ref_walk in self.compute_alleles():
+                u, v = edge
+                data = self.edges[edge]
+                allele_data_list = []
 
+                allele_data_list.append('chr6')
+                if is_in_ref_walk:
+                    allele_data_list.append(ref_allele)
+                else:
+                    allele_data_list.append('')
+                allele_data_list.append(alt_allele)
+                allele_data_list.append(str(self.nodes[u]['position']))
+                allele_data_list.append(str(self.nodes[v]['position']))
+                if not is_in_ref_walk:
+                    allele_data_list.append(ref_allele)
+                else:
+                    allele_data_list.append('')
 
-        positive_direction_variants = [e if self.nodes[e[0]]['direction'] == 1 else _edge_complement(e)
-                                       for e in non_inversion_variants]
-
-        # For each variant edge (u,v), yield the lowest common ancestor of u and v in the tree
-        branch_point_tuples = nx.tree_all_pairs_lowest_common_ancestor(
-            self.reference_tree,
-            root=self.termini[0]+'_+',
-            pairs=positive_direction_variants
-        )
-
-        reversed_tree = nx.reverse(self.reference_tree)
-
-        previous_edge = (None, None)
-        for edge, branch_point in branch_point_tuples:
-            u, v = edge
-
-            # tree_all_pairs_lowest_common_ancestor function yields duplicates for self-pairs
-            if edge == previous_edge:
-                assert u == v, "Found duplicate edge that was not a self-edge"
-                continue
-            previous_edge = edge
-
-            ref_path = nx.shortest_path(reversed_tree, v, branch_point)
-            alt_path = nx.shortest_path(reversed_tree, u, branch_point)
-
-            # alt allele sometimes includes and sometime excludes the branch point and u, depending on edge type
-            # TODO add annotations for is_forward_edge vs is_crossing_edge
-            is_back_edge = branch_point == v
-            is_forward_edge = branch_point == u
-            if is_back_edge:
-                alt_path = alt_path[::-1]
-            elif is_forward_edge:
-                alt_path = []
-            else:
-                alt_path = alt_path[-1:0:-1]
-
-            # ref path always excludes both the branch point and v
-            ref_path = ref_path[-2:0:-1]
-
-            alt_allele = ''
-            for node in alt_path:
-                alt_allele += self.nodes[node]['sequence']
-
-            ref_allele = ''
-            for node in ref_path:
-                ref_allele += self.nodes[node]['sequence']
-
-            last_letter_of_branch_point = self.nodes[branch_point]['sequence'][-1]
-
-            yield edge, (ref_allele, alt_allele), last_letter_of_branch_point
+                file.write(','.join(allele_data_list) + '\n')
 
     def write_edgeinfo(self, filename: str) -> None:
         with open(filename, 'w') as file:
@@ -351,6 +331,76 @@ class PangenomeGraph(nx.DiGraph):
             for u, v in zip(walk[:-1], walk[1:]):
                 self.edges[u, v]['weight'] += 1
                 self.edges[_node_complement(v), _node_complement(u)]['weight'] += 1
+
+    def compute_alleles(self) -> tuple:
+        """
+        Yields the ref and alt allele for variant
+        """
+
+        # TODO think about inversions
+        non_inversion_variants = [(u, v) for u, v in self.variant_edges
+                                  if self.nodes[u]['direction'] == self.nodes[v]['direction']]
+
+
+        positive_direction_variants = [e if self.nodes[e[0]]['direction'] == 1 else _edge_complement(e)
+                                       for e in non_inversion_variants]
+
+        # For each variant edge (u,v), yield the lowest common ancestor of u and v in the tree
+        branch_point_tuples = nx.tree_all_pairs_lowest_common_ancestor(
+            self.reference_tree,
+            root=self.termini[0]+'_+',
+            pairs=positive_direction_variants
+        )
+
+        reversed_tree = nx.reverse(self.reference_tree)
+
+        previous_edge = (None, None)
+        for edge, branch_point in branch_point_tuples:
+            u, v = edge
+
+            # tree_all_pairs_lowest_common_ancestor function yields duplicates for self-pairs
+            if edge == previous_edge:
+                assert u == v, "Found duplicate edge that was not a self-edge"
+                continue
+            previous_edge = edge
+
+            ref_path = nx.shortest_path(reversed_tree, v, branch_point)
+            alt_path = nx.shortest_path(reversed_tree, u, branch_point)
+
+            # alt allele sometimes includes and sometime excludes the branch point and u, depending on edge type
+            # TODO add annotations for is_forward_edge vs is_crossing_edge
+            is_back_edge = branch_point == v
+            is_forward_edge = branch_point == u
+            is_crossing_edge = False
+
+            if is_back_edge:
+                is_forward_edge = False
+                alt_path = alt_path[::-1]
+            elif is_forward_edge:
+                alt_path = []
+            else:
+                is_crossing_edge = True
+                alt_path = alt_path[-1:0:-1]
+
+            self.edges[(u, v)]['is_forward_edge'] = is_forward_edge
+            self.edges[(u, v)]['is_crossing_edge'] = is_crossing_edge
+
+            # ref path always excludes both the branch point and v
+            ref_path = ref_path[-2:0:-1]
+
+            is_in_ref_walk = self.in_reference_walk([branch_point]+ref_path)
+
+            alt_allele = ''
+            for node in alt_path:
+                alt_allele += self.nodes[node]['sequence']
+
+            ref_allele = ''
+            for node in ref_path:
+                ref_allele += self.nodes[node]['sequence']
+
+            last_letter_of_branch_point = self.nodes[branch_point]['sequence'][-1]
+
+            yield edge, (ref_allele, alt_allele), last_letter_of_branch_point, is_in_ref_walk
 
     def genotype(self, walk: list[str]) -> dict:
 
