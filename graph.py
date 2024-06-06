@@ -121,6 +121,8 @@ class PangenomeGraph(nx.DiGraph):
         print("Finish creating tree, start adding position")
         G.compute_binode_positions()
 
+        G.annotate_branch_points()
+
         if return_walks:
             return G, walks
 
