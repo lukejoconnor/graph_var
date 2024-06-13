@@ -17,6 +17,7 @@ class PangenomeGraph(nx.DiGraph):
     def termini(self) -> tuple[str, str]:
         return '+_terminus', '-_terminus'
 
+    # Each biedge has a representative edge, whichever is in the .gfa file
     @property
     def sorted_biedge_representatives(self) -> list[str]:
         edges = [edge_with_data for edge_with_data in self.edges(data=True) if edge_with_data[2]['is_representative']]
@@ -24,9 +25,7 @@ class PangenomeGraph(nx.DiGraph):
 
     @property
     def biedge_attribute_names(self) -> tuple:
-        return 'index', 'weight', 'is_in_tree'
-        # TODO add 'is_in_reference_path' such that we can load with edgeinfo file not specifying reference walk index
-    #     TODO add 'position'
+        return 'index', 'weight', 'is_in_tree', 'branch_point'
 
     @property
     def node_attribute_names(self) -> tuple:
@@ -37,32 +36,17 @@ class PangenomeGraph(nx.DiGraph):
         return 'CHR', 'REF', 'ALT', 'POS u', 'POS v', 'Non Linear REF'
         # TODO add indices of u and v
 
-    def __init__(self,
-                 directed_graph: nx.classes.digraph.DiGraph = None,
-                 reference_tree: nx.classes.digraph.DiGraph = None,
-                 reference_path: list[str] = None,
-                 variant_edges: set = None
-                 ):
-        if directed_graph is None:
-            directed_graph = nx.DiGraph()
-        if reference_tree is None:
-            reference_tree = nx.DiGraph()
-        super().__init__(directed_graph)
-        self.reference_tree = reference_tree
-        self.reference_path = reference_path if reference_path else []
-        self.variant_edges = variant_edges if variant_edges else {}
-        self.number_of_biedges = np.sum(
-            [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
-        )
-
     @classmethod
     def from_gfa(cls,
                  gfa_file: str,
+                 reference_path_index: int,
                  edgeinfo_file: str = None,
-                 reference_path_index: int = None,
                  return_walks: bool = False,
                  compressed: bool = False
                  ):
+        """
+        Reads a .gfa file into a PangenomeGraph object.
+        """
 
         if not os.path.exists(gfa_file):
             raise FileNotFoundError(gfa_file)
@@ -86,41 +70,27 @@ class PangenomeGraph(nx.DiGraph):
             node2 = biedge[1] + '_' + biedge[3]
             G.add_biedge(node1, node2)
 
-        # Add universal source and sink nodes, also adding terminal edges for each walk
+        if reference_path_index >= len(walks) or reference_path_index < 0:
+            raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
+
+        G.add_reference_path(walks[reference_path_index])
+
         walk_start_nodes = [walk[0] for walk in walks]
         walk_end_nodes = [walk[-1] for walk in walks]
         G.add_terminal_nodes(walk_start_nodes=walk_start_nodes, walk_end_nodes=walk_end_nodes)
 
-        print("Finished adding start/end nodes")
-
-        # Add reference path
-        if reference_path_index is not None:
-            if reference_path_index >= len(walks) or reference_path_index < 0:
-                raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
-
-            G.add_reference_path([G.termini[0]+'_+'] + walks[reference_path_index] + [G.termini[1]+'_+'])
-
-        else:
-            G.reference_path = nx.shortest_path(G, source=G.termini[0]+'_+', target=G.termini[1]+'_+')
-
-        assert len(G.reference_path) == len(set(G.reference_path)), "The reference path has duplicate vertices."
-
         if edgeinfo_file:
-            # Read edgeinfo file and create reference tree and reference dag
+            print("Reading edgeinfo file")
             G.read_edgeinfo(edgeinfo_file)
         else:
-            # Add weights to edges
-            print("Start adding weights")
+            print("Computing reference tree")
             G.compute_edge_weights(walks)
-            print("Finish adding weights, start creating tree")
-
-            # Create spanning tree and define variant edges
             G.compute_reference_tree()
 
-        # Add positions
-        print("Finish creating tree, start adding position")
+        print("Computing positions")
         G.compute_binode_positions()
 
+        print("Computing branch points")
         G.annotate_branch_points()
 
         if return_walks:
@@ -128,8 +98,27 @@ class PangenomeGraph(nx.DiGraph):
 
         return G
 
+    def __init__(self,
+                 directed_graph: nx.classes.digraph.DiGraph = None,
+                 reference_tree: nx.classes.digraph.DiGraph = None,
+                 reference_path: list[str] = None,
+                 variant_edges: set = None
+                 ):
+        if directed_graph is None:
+            directed_graph = nx.DiGraph()
+        if reference_tree is None:
+            reference_tree = nx.DiGraph()
+        super().__init__(directed_graph)
+        self.reference_tree = reference_tree
+        self.reference_path = reference_path if reference_path else []
+        self.variant_edges = variant_edges if variant_edges else {}
+        self.number_of_biedges = np.sum(
+            [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
+        )
+
     def add_reference_path(self, reference_path: list):
         self.reference_path = reference_path
+        assert len(self.reference_path) == len(set(self.reference_path)), "The reference path has duplicate vertices."
 
         # Define direction of the reference path to be positive
         for node in reference_path:
@@ -189,9 +178,13 @@ class PangenomeGraph(nx.DiGraph):
         return len(ref) == len(alt) == 1
 
     def add_terminal_nodes(self, walk_start_nodes: list[str]=None, walk_end_nodes: list[str]=None):
+        """Add two terminal binodes, +_terminus and -_terminus, to the graph. A valid walk proceeds
+        from +_terminus_+ to -_terminus_+ or from -_terminus_- to +_terminus_-."""
 
         positive_subgraph = self.subgraph([n for n, direction in self.nodes(data="direction") if direction == 1])
 
+        # source and sink nodes for positive-direction walks; complementary nodes are sink and source nodes for
+        # negative-direction walks, respectively
         source_nodes = {node for node, degree in positive_subgraph.in_degree() if degree == 0}
         sink_nodes = {node for node, degree in positive_subgraph.out_degree() if degree == 0}
 
@@ -220,20 +213,23 @@ class PangenomeGraph(nx.DiGraph):
         for sink_node in sink_nodes:
             self.add_biedge(sink_node, minus_terminus + '_+')
 
+        # reference path is assumed to be in the positive direction
+        self.reference_path = [plus_terminus + '_+'] + self.reference_path + [minus_terminus + '_+']
+
     def compute_reference_tree(self):
 
-        # Construct reference tree
+        # reference tree contains positive-direction nodes only, and no inversion edges
         positive_subgraph = self.subgraph([n for n, direction in self.nodes(data="direction") if direction == 1])
-        self.reference_tree = max_weight_dfs_tree(positive_subgraph,
-                                                                      source=self.termini[0] + '_+',
-                                                                      reference_path=self.reference_path)
+        self.reference_tree = max_weight_dfs_tree(positive_subgraph, reference_path=self.reference_path)
 
-        # Annotate edges
         for edge in positive_subgraph.edges():
-            self.edges[edge]['is_in_tree'] = self.reference_tree.has_edge(*edge)
-            self.edges[_edge_complement(edge)]['is_in_tree'] = self.reference_tree.has_edge(*edge)
+            edge_in_tree = self.reference_tree.has_edge(*edge)
+            if self.edges[edge]['is_representative']:
+                self.edges[edge]['is_in_tree'] = edge_in_tree
+            else:
+                self.edges[_edge_complement(edge)]['is_in_tree'] = edge_in_tree
 
-        # Define variant edge representatives
+        # Variant edges are those not in the tree
         self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
                 if data['is_representative'] and not data['is_in_tree']}
 
@@ -270,6 +266,11 @@ class PangenomeGraph(nx.DiGraph):
                 file.write(','.join(allele_data_list) + '\n')
 
     def write_edgeinfo(self, filename: str) -> None:
+        def to_string(edge_attribute):
+            if type(edge_attribute) is bool:
+                return '1' if edge_attribute else '0'
+            return str(edge_attribute)
+
         with open(filename, 'w') as file:
             # Write the header row
             file.write(','.join(self.biedge_attribute_names) + '\n')
@@ -281,10 +282,17 @@ class PangenomeGraph(nx.DiGraph):
                 _, _, data = edge
                 assert n == data['index'], 'Something is wrong with edge indices'
                 # Write the edge information to the file; map True->'1', False->'0'
-                edge_data_list = [str(int(data[key])) for key in self.biedge_attribute_names]
+                edge_data_list = [to_string(data[key]) for key in self.biedge_attribute_names]
                 file.write(','.join(edge_data_list) + '\n')
 
     def read_edgeinfo(self, filename: str) -> None:
+
+        def from_string(s: str):
+            try:
+                float(s)
+                return float(s)
+            except ValueError:
+                return s
 
         sorted_edges = self.sorted_biedge_representatives
 
@@ -301,8 +309,8 @@ class PangenomeGraph(nx.DiGraph):
 
                 # Extract the edge info
                 for i, key in enumerate(self.biedge_attribute_names):
-                    self.edges[edge][key] = int(parts[i])
-                    self.edges[_edge_complement(edge)][key] = int(parts[i])
+                    self.edges[edge][key] = from_string(parts[i])
+                    self.edges[_edge_complement(edge)][key] = from_string(parts[i])
 
         # Define variant edge representatives
         self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
@@ -337,10 +345,11 @@ class PangenomeGraph(nx.DiGraph):
         edge_data = {key: 0 for key in self.biedge_attribute_names}
         edge_data['weight'] = weight
         edge_data['index'] = self.number_of_biedges
-        edge_data['is_representative'] = False
-        self.add_edge(_node_complement(node2), _node_complement(node1), **edge_data)
         edge_data['is_representative'] = True
         self.add_edge(node1, node2, **edge_data)
+
+        edge_data = {'is_representative': False, 'weight': weight}
+        self.add_edge(_node_complement(node2), _node_complement(node1), **edge_data)
         self.number_of_biedges += 1
 
     def representative_edge(self, edge: tuple):
@@ -458,11 +467,11 @@ class PangenomeGraph(nx.DiGraph):
             if not self.has_edge(*e):
                 raise ValueError(f"Specified list contains edge {e} which is not present in the graph")
 
-            if self.edges[e]['is_in_tree']:
-                continue
-
             if not self.edges[e]['is_representative']:
                 e = _edge_complement(e)
+
+            if self.edges[e]['is_in_tree']:
+                continue
 
             if e in genotype:
                 genotype[e] += 1
