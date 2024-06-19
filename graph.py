@@ -418,7 +418,7 @@ class PangenomeGraph(nx.DiGraph):
         while u != ancestor:
             result.append(u)
             u = next(self.reference_tree.predecessors(u))
-        # result.append(ancestor)
+        result.append(ancestor)
         return result
 
     # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
@@ -459,7 +459,7 @@ class PangenomeGraph(nx.DiGraph):
             alt_path = []
         else:
             is_crossing_edge = True
-            alt_path = alt_path[-1:0:-1]
+            alt_path = alt_path[-2::-1]
 
         # ref path always excludes both the branch point and v
         ref_path = ref_path[-2:0:-1]
