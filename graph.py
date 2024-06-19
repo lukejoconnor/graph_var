@@ -4,6 +4,8 @@ import numpy as np
 from utils import read_gfa, _node_complement, _edge_complement, _sequence_reversed_complement
 from search_tree import max_weight_dfs_tree
 import os
+from collections import defaultdict, Counter
+from tqdm import tqdm
 
 
 class PangenomeGraph(nx.DiGraph):
@@ -33,8 +35,8 @@ class PangenomeGraph(nx.DiGraph):
 
     @property
     def vcf_attribute_names(self) -> tuple:
-        return 'CHR', 'REF', 'ALT', 'POS u', 'POS v', 'Non Linear REF'
-        # TODO add indices of u and v
+        return 'CHR', 'Indice u', 'Indice v', 'POS u', 'POS v', 'REF', 'ALT', 'Non Linear REF'
+        # TODO add indices of u and v (Done)
 
     @classmethod
     def from_gfa(cls,
@@ -54,7 +56,7 @@ class PangenomeGraph(nx.DiGraph):
             if not os.path.exists(edgeinfo_file):
                 raise FileNotFoundError(edgeinfo_file)
 
-        binodes, biedges, walks, sequences = read_gfa(gfa_file, compressed=compressed)
+        binodes, biedges, walks, walk_sample_names, sequences = read_gfa(gfa_file, compressed=compressed)
 
         print("Num of binodes:", len(binodes))
         print("Num of biedges:", len(biedges))
@@ -94,7 +96,7 @@ class PangenomeGraph(nx.DiGraph):
         G.annotate_branch_points()
 
         if return_walks:
-            return G, walks
+            return G, walks, walk_sample_names
 
         return G
 
@@ -234,34 +236,56 @@ class PangenomeGraph(nx.DiGraph):
                 if data['is_representative'] and not data['is_in_tree']}
 
     # TODO aggregate genotype counts of walks by sample, maybe using a new method or by adding an option to genotype()
-    def write_vcf(self, filename: str) -> None:
+    def write_vcf(self,
+                  walks: list,
+                  sample_names: list,
+                  filename: str,
+                  chr_name: str,
+                  size_threshold: int = 200) -> None:
         # TODO add a column for each sample, with headers equal to sample names
         # TODO add last_letter_of_branch_point to ref and alt alleles if either one is empty
-        # TODO either extract actual chromosome from GFA or add as a parameter
+        # TODO either extract actual chromosome from GFA or add as a parameter (Done)
 
         with open(filename, 'w') as file:
+            # 'CHR', 'Indice u', 'Indice v', 'POS u', 'POS v', 'REF', 'ALT', 'Non Linear REF'
             # Write the header row
-            file.write(','.join(self.vcf_attribute_names) + '\n')
+            sample_genotype_dict = self.integrate_genotype_by_sample(sample_names, walks)
+            sorted_sample_names = sorted(sample_genotype_dict.keys())
+            header_names = list(self.vcf_attribute_names) + sorted_sample_names
+            file.write(','.join(header_names) + '\n')
 
-            for u, v in self.variant_edges:
-                data = self.edges[u, v]
-                ref_allele, alt_allele, last_letter_of_branch_point = self.ref_alt_alleles((u, v))
+            for u, v in tqdm(self.variant_edges):
+                edge = (u, v)
+                data = self.edges[edge]
+                ref_allele, alt_allele, last_letter_of_branch_point = self.ref_alt_alleles(edge)
+
+                if len(ref_allele) > size_threshold or len(alt_allele) > size_threshold:
+                    continue
 
                 allele_data_list = []
 
-                allele_data_list.append('chr6')  #TODO
+                allele_data_list.append(chr_name)
+                allele_data_list.append(u)
+                allele_data_list.append(v)
+                allele_data_list.append(str(self.nodes[u]['position']))
+                allele_data_list.append(str(self.nodes[v]['position']))
+
                 if 'on_reference_path' in self.nodes[v]:
                     allele_data_list.append(ref_allele)
                 else:
                     allele_data_list.append('')
                 allele_data_list.append(alt_allele)
-                allele_data_list.append(str(self.nodes[u]['position']))
-                allele_data_list.append(str(self.nodes[v]['position']))
 
                 if not 'on_reference_path' in self.nodes[v]:
                     allele_data_list.append(ref_allele)
                 else:
                     allele_data_list.append('')
+
+                for sample_name in sorted_sample_names:
+                    if edge in sample_genotype_dict[sample_name]:
+                        allele_data_list.append(str(sample_genotype_dict[sample_name][edge]))
+                    else:
+                        allele_data_list.append('0')
 
                 file.write(','.join(allele_data_list) + '\n')
 
@@ -394,6 +418,7 @@ class PangenomeGraph(nx.DiGraph):
         while u != ancestor:
             result.append(u)
             u = next(self.reference_tree.predecessors(u))
+        # result.append(ancestor)
         return result
 
     # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
@@ -453,6 +478,13 @@ class PangenomeGraph(nx.DiGraph):
         last_letter_of_branch_point = branch_sequence[-1]
 
         return ref_allele, alt_allele, last_letter_of_branch_point
+
+    def integrate_genotype_by_sample(self, sample_names, walks):
+        sample_genotype_dict = defaultdict(Counter)
+        for sample_name, walk in zip(sample_names, walks):
+            walk_genotype_dict = self.genotype(walk)
+            sample_genotype_dict[sample_name].update(walk_genotype_dict)
+        return sample_genotype_dict
 
 
     def genotype(self, walk: list[str]) -> dict:
