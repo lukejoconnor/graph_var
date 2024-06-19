@@ -27,6 +27,7 @@ def read_gfa(filename, compressed=False):
   sequences = []
   edges = []
   walks = []
+  walk_sample_names = []
   pattern = r'\w+|[<>]'
 
   if compressed:
@@ -42,6 +43,7 @@ def read_gfa(filename, compressed=False):
           edge = (parts[1], parts[3], parts[2], parts[4])
           edges.append(edge)
       elif parts[0] == 'W':
+          sample_name = parts[1]+'_'+parts[2]
           p = parts[6]
           matches = re.findall(pattern, p)
           # List to store node IDs
@@ -58,4 +60,5 @@ def read_gfa(filename, compressed=False):
                       node_ids.append(f'{match}_+')
           #node_ids.append('end_node')
           walks.append(node_ids)
-  return nodes, edges, walks, sequences
+          walk_sample_names.append(sample_name)
+  return nodes, edges, walks, walk_sample_names, sequences
