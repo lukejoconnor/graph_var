@@ -22,6 +22,15 @@ def _flip(s):
     else:
         raise ValueError()
 
+def _node_recover(node_id):
+    node, direction = node_id.split('_')
+    if direction == '+':
+        return '>'+node
+    elif direction == '-':
+        return '<'+node
+    else:
+        raise ValueError()
+
 def read_gfa(filename, compressed=False):
   nodes = []
   sequences = []

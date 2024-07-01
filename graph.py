@@ -1,7 +1,7 @@
 from math import inf
 import networkx as nx
 import numpy as np
-from utils import read_gfa, _node_complement, _edge_complement, _sequence_reversed_complement
+from utils import read_gfa, _node_complement, _edge_complement, _sequence_reversed_complement, _node_recover
 from search_tree import max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
@@ -176,7 +176,7 @@ class PangenomeGraph(nx.DiGraph):
     def is_snp(self, edge):
         if not self.is_crossing_edge(edge):
             return False
-        ref, alt, _ = self.ref_alt_alleles(edge)
+        ref, alt, _, _, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == len(alt) == 1
 
     def add_terminal_nodes(self, walk_start_nodes: list[str]=None, walk_end_nodes: list[str]=None):
@@ -257,10 +257,14 @@ class PangenomeGraph(nx.DiGraph):
             for u, v in tqdm(self.variant_edges):
                 edge = (u, v)
                 data = self.edges[edge]
-                ref_allele, alt_allele, last_letter_of_branch_point = self.ref_alt_alleles(edge)
+                ref_allele, alt_allele, last_letter_of_branch_point, ref_ids, alt_ids, branch_point = self.ref_alt_alleles(edge)
 
                 if len(ref_allele) > size_threshold or len(alt_allele) > size_threshold:
-                    continue
+                    ref = ref_ids
+                    alt = alt_ids
+                else:
+                    ref = ref_allele
+                    alt = alt_allele
 
                 allele_data_list = []
 
@@ -271,13 +275,13 @@ class PangenomeGraph(nx.DiGraph):
                 allele_data_list.append(str(self.nodes[v]['position']))
 
                 if 'on_reference_path' in self.nodes[v]:
-                    allele_data_list.append(ref_allele)
+                    allele_data_list.append(ref)
                 else:
                     allele_data_list.append('')
-                allele_data_list.append(alt_allele)
+                allele_data_list.append(alt)
 
                 if not 'on_reference_path' in self.nodes[v]:
-                    allele_data_list.append(ref_allele)
+                    allele_data_list.append(ref)
                 else:
                     allele_data_list.append('')
 
@@ -422,7 +426,7 @@ class PangenomeGraph(nx.DiGraph):
         return result
 
     # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
-    def ref_alt_alleles(self, variant_edge: tuple) -> tuple[str, str, str]:
+    def ref_alt_alleles(self, variant_edge: tuple) -> tuple[str,str,str,str,str,str]:
         """
         Computes the reference allele and alternative allele of the branch point for each variant edge.
         :param variant_edges: list of tuples (u,v).
@@ -435,7 +439,7 @@ class PangenomeGraph(nx.DiGraph):
 
         u, v = variant_edge
         if self.is_inversion(variant_edge):
-            return ('','','')
+            return ('','','','','','')
 
         branch_point = self.edges[u, v]['branch_point']
         if self.nodes[u]['direction'] == -1:
@@ -477,7 +481,10 @@ class PangenomeGraph(nx.DiGraph):
             branch_sequence = 'N'
         last_letter_of_branch_point = branch_sequence[-1]
 
-        return ref_allele, alt_allele, last_letter_of_branch_point
+        ref_ids = ''.join(list(map(lambda x: _node_recover(x), ref_path)))
+        alt_ids = ''.join(list(map(lambda x: _node_recover(x), alt_path)))
+
+        return ref_allele, alt_allele, last_letter_of_branch_point, ref_ids, alt_ids, branch_point
 
     def integrate_genotype_by_sample(self, sample_names, walks):
         sample_genotype_dict = defaultdict(Counter)
