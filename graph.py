@@ -35,7 +35,7 @@ class PangenomeGraph(nx.DiGraph):
 
     @property
     def vcf_attribute_names(self) -> tuple:
-        return 'CHR', 'Indice u', 'Indice v', 'POS u', 'POS v', 'REF', 'ALT', 'Non Linear REF'
+        return 'CHR', 'POS_U', 'POS_V', 'REF', 'ALT', 'REF_OFF', 'LINE_U', 'LINE_V'
         # TODO add indices of u and v (Done)
 
     @classmethod
@@ -239,15 +239,18 @@ class PangenomeGraph(nx.DiGraph):
     def write_vcf(self,
                   walks: list,
                   sample_names: list,
-                  filename: str,
+                  vcf_filename: str,
+                  tree_filename: str,
                   chr_name: str,
                   size_threshold: int = 200) -> None:
         # TODO add a column for each sample, with headers equal to sample names
         # TODO add last_letter_of_branch_point to ref and alt alleles if either one is empty
         # TODO either extract actual chromosome from GFA or add as a parameter (Done)
 
-        with open(filename, 'w') as file:
-            # 'CHR', 'Indice u', 'Indice v', 'POS u', 'POS v', 'REF', 'ALT', 'Non Linear REF'
+        order: list = self.write_tree(tree_filename)
+        node_to_line = {node: line for line, node in enumerate(order)}
+
+        with open(vcf_filename, 'w') as file:
             # Write the header row
             sample_genotype_dict = self.integrate_genotype_by_sample(sample_names, walks)
             sorted_sample_names = sorted(sample_genotype_dict.keys())
@@ -255,22 +258,21 @@ class PangenomeGraph(nx.DiGraph):
             file.write(','.join(header_names) + '\n')
 
             for u, v in tqdm(self.variant_edges):
-                edge = (u, v)
-                data = self.edges[edge]
-                ref_allele, alt_allele, last_letter_of_branch_point, ref_ids, alt_ids, branch_point = self.ref_alt_alleles(edge)
+                if self.nodes[u]['direction'] != self.nodes[v]['direction']:
+                    continue  # TODO how to handle inversions?
 
-                if len(ref_allele) > size_threshold or len(alt_allele) > size_threshold:
-                    ref = ref_ids
-                    alt = alt_ids
-                else:
-                    ref = ref_allele
-                    alt = alt_allele
+                if self.nodes[u]['direction'] == -1:
+                    u, v = _edge_complement((u,v))
+                edge = (u, v)
+
+                ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
+
+                ref = ref_allele[:size_threshold]
+                alt = alt_allele[:size_threshold]
 
                 allele_data_list = []
 
                 allele_data_list.append(chr_name)
-                allele_data_list.append(u)
-                allele_data_list.append(v)
                 allele_data_list.append(str(self.nodes[u]['position']))
                 allele_data_list.append(str(self.nodes[v]['position']))
 
@@ -285,6 +287,11 @@ class PangenomeGraph(nx.DiGraph):
                 else:
                     allele_data_list.append('')
 
+                if u not in node_to_line:
+                    print(u, list(node_to_line.items()))
+                allele_data_list.append(str(node_to_line[u]))
+                allele_data_list.append(str(node_to_line[v]))
+
                 for sample_name in sorted_sample_names:
                     if edge in sample_genotype_dict[sample_name]:
                         allele_data_list.append(str(sample_genotype_dict[sample_name][edge]))
@@ -292,6 +299,27 @@ class PangenomeGraph(nx.DiGraph):
                         allele_data_list.append('0')
 
                 file.write(','.join(allele_data_list) + '\n')
+
+    def write_tree(self, filename: str) -> list:
+        with open(filename, 'w') as file:
+            line_in_file = {}
+            current_position = 0
+
+            def write_node(node):
+                if self.reference_tree.in_degree[node] == 0:
+                    parent_position_in_file = -1
+                else:
+                    parent = next(self.reference_tree.predecessors(node))
+                    parent_position_in_file = line_in_file[parent] if parent else -1
+                node_sequence = self.nodes[node]['sequence']
+                file.write(f"{node},{parent_position_in_file},{node_sequence}\n")
+
+            order = list(nx.topological_sort(self.reference_tree))
+            for line, u in enumerate(order):
+                write_node(u)
+                line_in_file[u] = line
+
+            return order
 
     def write_edgeinfo(self, filename: str) -> None:
         def to_string(edge_attribute):
@@ -426,7 +454,7 @@ class PangenomeGraph(nx.DiGraph):
         return result
 
     # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
-    def ref_alt_alleles(self, variant_edge: tuple) -> tuple[str,str,str,str,str,str]:
+    def ref_alt_alleles(self, variant_edge: tuple) -> tuple[str,str,str,str]:
         """
         Computes the reference allele and alternative allele of the branch point for each variant edge.
         :param variant_edges: list of tuples (u,v).
@@ -439,12 +467,11 @@ class PangenomeGraph(nx.DiGraph):
 
         u, v = variant_edge
         if self.is_inversion(variant_edge):
-            return ('','','','','','')
+            return '', '', '', ''
 
         branch_point = self.edges[u, v]['branch_point']
         if self.nodes[u]['direction'] == -1:
-            u = _node_complement(u)
-            v = _node_complement(v)
+            u, v = _edge_complement((u, v))
             branch_point = _node_complement(branch_point)
 
         ref_path = self.walk_up_tree(branch_point, v)
@@ -481,10 +508,7 @@ class PangenomeGraph(nx.DiGraph):
             branch_sequence = 'N'
         last_letter_of_branch_point = branch_sequence[-1]
 
-        ref_ids = ''.join(list(map(lambda x: _node_recover(x), ref_path)))
-        alt_ids = ''.join(list(map(lambda x: _node_recover(x), alt_path)))
-
-        return ref_allele, alt_allele, last_letter_of_branch_point, ref_ids, alt_ids, branch_point
+        return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
 
     def integrate_genotype_by_sample(self, sample_names, walks):
         sample_genotype_dict = defaultdict(Counter)
