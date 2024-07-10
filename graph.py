@@ -36,7 +36,6 @@ class PangenomeGraph(nx.DiGraph):
     @property
     def vcf_attribute_names(self) -> tuple:
         return 'CHR', 'POS_U', 'POS_V', 'REF', 'ALT', 'REF_OFF', 'LINE_U', 'LINE_V'
-        # TODO add indices of u and v (Done)
 
     @classmethod
     def from_gfa(cls,
@@ -235,7 +234,7 @@ class PangenomeGraph(nx.DiGraph):
         self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
                 if data['is_representative'] and not data['is_in_tree']}
 
-    # TODO aggregate genotype counts of walks by sample, maybe using a new method or by adding an option to genotype()
+    # TODO aggregate genotype counts of walks by sample, maybe using a new method or by adding an option to genotype() (Done)
     def write_vcf(self,
                   walks: list,
                   sample_names: list,
@@ -243,8 +242,7 @@ class PangenomeGraph(nx.DiGraph):
                   tree_filename: str,
                   chr_name: str,
                   size_threshold: int = 200) -> None:
-        # TODO add a column for each sample, with headers equal to sample names
-        # TODO add last_letter_of_branch_point to ref and alt alleles if either one is empty
+        # TODO add last_letter_of_branch_point to ref and alt alleles if either one is empty (Done)
         # TODO either extract actual chromosome from GFA or add as a parameter (Done)
 
         order: list = self.write_tree(tree_filename)
@@ -266,6 +264,10 @@ class PangenomeGraph(nx.DiGraph):
                 edge = (u, v)
 
                 ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
+
+                if len(ref_allele) == 0 or len(alt_allele) == 0:
+                    ref_allele = last_letter_of_branch_point + ref_allele
+                    alt_allele = last_letter_of_branch_point + alt_allele
 
                 ref = ref_allele[:size_threshold]
                 alt = alt_allele[:size_threshold]
@@ -289,6 +291,7 @@ class PangenomeGraph(nx.DiGraph):
 
                 if u not in node_to_line:
                     print(u, list(node_to_line.items()))
+
                 allele_data_list.append(str(node_to_line[u]))
                 allele_data_list.append(str(node_to_line[v]))
 
