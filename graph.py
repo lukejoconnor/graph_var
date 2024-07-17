@@ -241,7 +241,8 @@ class PangenomeGraph(nx.DiGraph):
                   vcf_filename: str,
                   tree_filename: str,
                   chr_name: str,
-                  size_threshold: int = 200) -> None:
+                  size_threshold: int = 200,
+                  walkup_limit: int = 50) -> None:
         # TODO add last_letter_of_branch_point to ref and alt alleles if either one is empty (Done)
         # TODO either extract actual chromosome from GFA or add as a parameter (Done)
 
@@ -263,7 +264,8 @@ class PangenomeGraph(nx.DiGraph):
                     u, v = _edge_complement((u,v))
                 edge = (u, v)
 
-                ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
+                ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge, walkup_limit=walkup_limit)
+                # ref_allele, alt_allele, last_letter_of_branch_point, branch_point = '', '', '', ''
 
                 if len(ref_allele) == 0 or len(alt_allele) == 0:
                     ref_allele = last_letter_of_branch_point + ref_allele
@@ -447,17 +449,22 @@ class PangenomeGraph(nx.DiGraph):
             else:
                 self.edges[_edge_complement(edge)]['branch_point'] = _node_complement(branch_point)
 
-    def walk_up_tree(self, ancestor, descendant) -> list:
+    def walk_up_tree(self, ancestor, descendant, search_limit=50) -> tuple[list, bool]:
         u = descendant
         result = []
-        while u != ancestor:
+        search_count = 0
+        reach_limit = False
+        while u != ancestor and search_count < search_limit:
+            search_count += 1
             result.append(u)
             u = next(self.reference_tree.predecessors(u))
         result.append(ancestor)
-        return result
+        if (search_count + 1) == search_limit:
+            reach_limit = True
+        return result, reach_limit
 
     # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
-    def ref_alt_alleles(self, variant_edge: tuple) -> tuple[str,str,str,str]:
+    def ref_alt_alleles(self, variant_edge: tuple, walkup_limit: int = 50) -> tuple[str,str,str,str]:
         """
         Computes the reference allele and alternative allele of the branch point for each variant edge.
         :param variant_edges: list of tuples (u,v).
@@ -477,9 +484,8 @@ class PangenomeGraph(nx.DiGraph):
             u, v = _edge_complement((u, v))
             branch_point = _node_complement(branch_point)
 
-        ref_path = self.walk_up_tree(branch_point, v)
-        alt_path = self.walk_up_tree(branch_point, u)
-
+        ref_path, ref_search_limit = self.walk_up_tree(branch_point, v, walkup_limit)
+        alt_path, alt_search_limit = self.walk_up_tree(branch_point, u, walkup_limit)
 
         # alt allele sometimes includes and sometime excludes the branch point and u, depending on edge type
         is_back_edge = branch_point == v
@@ -499,12 +505,18 @@ class PangenomeGraph(nx.DiGraph):
         ref_path = ref_path[-2:0:-1]
 
         alt_allele = ''
-        for node in alt_path:
-            alt_allele += self.nodes[node]['sequence']
+        if alt_search_limit:
+            alt_allele = 'N'
+        else:
+            for node in alt_path:
+                alt_allele += self.nodes[node]['sequence']
 
         ref_allele = ''
-        for node in ref_path:
-            ref_allele += self.nodes[node]['sequence']
+        if ref_search_limit:
+            ref_allele = 'N'
+        else:
+            for node in ref_path:
+                ref_allele += self.nodes[node]['sequence']
 
         branch_sequence = self.nodes[branch_point]['sequence']
         if not branch_sequence:
