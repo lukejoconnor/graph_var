@@ -428,7 +428,7 @@ class PangenomeGraph(nx.DiGraph):
 
         for edge, branch_point in branch_point_tuples:
             self.edges[edge]['branch_point'] = branch_point
-            self.edges[_edge_complement(edge)]['branch_point'] = _node_complement(branch_point)
+            self.edges[_edge_complement(edge)]['branch_point'] = branch_point
 
     def walk_up_tree(self, ancestor, descendant, search_limit=50) -> tuple[list, bool]:
         u = descendant
