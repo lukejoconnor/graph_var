@@ -2,7 +2,7 @@ from math import inf
 import networkx as nx
 import numpy as np
 from utils import read_gfa, _node_complement, _edge_complement, _sequence_reversed_complement, _node_recover
-from search_tree import max_weight_dfs_tree
+from search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
 from tqdm import tqdm
@@ -74,7 +74,8 @@ class PangenomeGraph(nx.DiGraph):
         if reference_path_index >= len(walks) or reference_path_index < 0:
             raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
 
-        G.add_reference_path(walks[reference_path_index])
+        G.reference_path = walks[reference_path_index]
+        assign_node_directions(G, G.reference_path)
 
         walk_start_nodes = [walk[0] for walk in walks]
         walk_end_nodes = [walk[-1] for walk in walks]
@@ -87,6 +88,7 @@ class PangenomeGraph(nx.DiGraph):
             print("Computing reference tree")
             G.compute_edge_weights(walks)
             G.compute_reference_tree()
+
 
         print("Computing positions")
         G.compute_binode_positions()
@@ -117,24 +119,6 @@ class PangenomeGraph(nx.DiGraph):
             [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
         )
 
-    def add_reference_path(self, reference_path: list):
-        self.reference_path = reference_path
-        assert len(self.reference_path) == len(set(self.reference_path)), "The reference path has duplicate vertices."
-
-        # Define direction of the reference path to be positive
-        for node in reference_path:
-            if self.nodes[node]['direction'] == -1:
-                self.nodes[node]['direction'] = 1
-                self.nodes[_node_complement(node)]['direction'] = -1
-
-        # Ensure first and last reference path edges are in the graph
-        if not self.has_edge(reference_path[0], reference_path[1]):
-            self.add_biedge(reference_path[0], reference_path[1])
-
-        if not self.has_edge(reference_path[-2], reference_path[-1]):
-            self.add_biedge(reference_path[-2], reference_path[-1])
-
-        self.nodes[node]['on_reference_path'] = True
 
     def is_inversion(self, edge):
         u, v = edge
@@ -175,8 +159,9 @@ class PangenomeGraph(nx.DiGraph):
     def is_snp(self, edge):
         if not self.is_crossing_edge(edge):
             return False
-        ref, alt, _, _, _, _ = self.ref_alt_alleles(edge)
+        ref, alt, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == len(alt) == 1
+
 
     def add_terminal_nodes(self, walk_start_nodes: list[str]=None, walk_end_nodes: list[str]=None):
         """Add two terminal binodes, +_terminus and -_terminus, to the graph. A valid walk proceeds
@@ -232,7 +217,7 @@ class PangenomeGraph(nx.DiGraph):
 
         # Variant edges are those not in the tree
         self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
-                if data['is_representative'] and not data['is_in_tree']}
+                              if data['is_representative'] and not data['is_in_tree']}
 
     # TODO aggregate genotype counts of walks by sample, maybe using a new method or by adding an option to genotype() (Done)
     def write_vcf(self,
@@ -441,13 +426,9 @@ class PangenomeGraph(nx.DiGraph):
             pairs=positive_direction_variants
         )
 
-        reversed_tree = nx.reverse(self.reference_tree)
-
         for edge, branch_point in branch_point_tuples:
-            if self.edges[edge]['is_representative']:
-                self.edges[edge]['branch_point'] = branch_point
-            else:
-                self.edges[_edge_complement(edge)]['branch_point'] = _node_complement(branch_point)
+            self.edges[edge]['branch_point'] = branch_point
+            self.edges[_edge_complement(edge)]['branch_point'] = _node_complement(branch_point)
 
     def walk_up_tree(self, ancestor, descendant, search_limit=50) -> tuple[list, bool]:
         u = descendant
