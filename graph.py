@@ -88,13 +88,11 @@ class PangenomeGraph(nx.DiGraph):
             print("Computing reference tree")
             G.compute_edge_weights(walks)
             G.compute_reference_tree()
-
+            print("Computing branch points")
+            G.annotate_branch_points()
 
         print("Computing positions")
         G.compute_binode_positions()
-
-        print("Computing branch points")
-        G.annotate_branch_points()
 
         if return_walks:
             return G, walks, walk_sample_names
