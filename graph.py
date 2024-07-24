@@ -124,7 +124,7 @@ class PangenomeGraph(nx.DiGraph):
 
     def variant_edges_summary(self):
         summary_dict = dict()
-        for edge in self.variant_edges:
+        for edge in tqdm(sorted(list(self.variant_edges))):
             if self.is_inversion(edge):
                 summary_dict['inversions'] = summary_dict.get('inversions', 0) + 1
             elif self.is_snp(edge):
