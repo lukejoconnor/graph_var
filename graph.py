@@ -227,16 +227,13 @@ class PangenomeGraph(nx.DiGraph):
 
         for edge in positive_subgraph.edges():
             edge_in_tree = self.reference_tree.has_edge(*edge)
-            if self.edges[edge]['is_representative']:
-                self.edges[edge]['is_in_tree'] = edge_in_tree
-            else:
-                self.edges[_edge_complement(edge)]['is_in_tree'] = edge_in_tree
+            self.edges[edge]['is_in_tree'] = edge_in_tree
+            self.edges[_edge_complement(edge)]['is_in_tree'] = edge_in_tree
 
         # Variant edges are those not in the tree
         self.variant_edges = {(u, v) for u, v, data in self.edges(data=True)
                               if data['is_representative'] and not data['is_in_tree']}
 
-    # TODO aggregate genotype counts of walks by sample, maybe using a new method or by adding an option to genotype() (Done)
     def write_vcf(self,
                   walks: list,
                   sample_names: list,
@@ -245,8 +242,6 @@ class PangenomeGraph(nx.DiGraph):
                   chr_name: str,
                   size_threshold: int = 200,
                   walkup_limit: int = 50) -> None:
-        # TODO add last_letter_of_branch_point to ref and alt alleles if either one is empty (Done)
-        # TODO either extract actual chromosome from GFA or add as a parameter (Done)
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
 
         meta_info = f'##fileformat=VCFv4.2\n' \
@@ -415,7 +410,7 @@ class PangenomeGraph(nx.DiGraph):
         edge_data['is_representative'] = True
         self.add_edge(node1, node2, **edge_data)
 
-        edge_data = {'is_representative': False, 'weight': weight}
+        edge_data['is_representative'] = False
         self.add_edge(_node_complement(node2), _node_complement(node1), **edge_data)
         self.number_of_biedges += 1
 
