@@ -133,6 +133,8 @@ class PangenomeGraph(nx.DiGraph):
                 summary_dict['crossing_edges'] = summary_dict.get('crossing_edges', 0) + 1
             elif self.is_back_edge(edge):
                 summary_dict['back_edges'] = summary_dict.get('back_edges', 0) + 1
+            elif self.is_forward_edge(edge):
+                summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
             else:
                 raise ValueError("This should never happen")
         return summary_dict
