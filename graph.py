@@ -26,6 +26,11 @@ class PangenomeGraph(nx.DiGraph):
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
     @property
+    def sorted_biedge(self) -> list[str]:
+        edges = [edge_with_data for edge_with_data in self.edges(data=True)]
+        return sorted(edges, key=lambda edge: edge[2]['index'])
+
+    @property
     def biedge_attribute_names(self) -> tuple:
         return 'index', 'weight', 'is_in_tree', 'branch_point'
 
@@ -35,7 +40,7 @@ class PangenomeGraph(nx.DiGraph):
 
     @property
     def vcf_attribute_names(self) -> tuple:
-        return 'CHR', 'POS_U', 'POS_V', 'REF', 'ALT', 'REF_OFF', 'LINE_U', 'LINE_V'
+        return 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT'
 
     @classmethod
     def from_gfa(cls,
@@ -117,6 +122,20 @@ class PangenomeGraph(nx.DiGraph):
             [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
         )
 
+    def variant_edges_summary(self):
+        summary_dict = dict()
+        for edge in self.variant_edges:
+            if self.is_inversion(edge):
+                summary_dict['inversions'] = summary_dict.get('inversions', 0) + 1
+            elif self.is_snp(edge):
+                summary_dict['snps'] = summary_dict.get('snps', 0) + 1
+            elif self.is_crossing_edge(edge):
+                summary_dict['crossing_edges'] = summary_dict.get('crossing_edges', 0) + 1
+            elif self.is_back_edge(edge):
+                summary_dict['back_edges'] = summary_dict.get('back_edges', 0) + 1
+            else:
+                raise ValueError("This should never happen")
+        return summary_dict
 
     def is_inversion(self, edge):
         u, v = edge
@@ -228,6 +247,9 @@ class PangenomeGraph(nx.DiGraph):
                   walkup_limit: int = 50) -> None:
         # TODO add last_letter_of_branch_point to ref and alt alleles if either one is empty (Done)
         # TODO either extract actual chromosome from GFA or add as a parameter (Done)
+        # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
+
+        meta_info = f'##fileformat=VCFv4.2\n' \
 
         order: list = self.write_tree(tree_filename)
         node_to_line = {node: line for line, node in enumerate(order)}
@@ -237,9 +259,10 @@ class PangenomeGraph(nx.DiGraph):
             sample_genotype_dict = self.integrate_genotype_by_sample(sample_names, walks)
             sorted_sample_names = sorted(sample_genotype_dict.keys())
             header_names = list(self.vcf_attribute_names) + sorted_sample_names
-            file.write(','.join(header_names) + '\n')
+            file.write(meta_info)
+            file.write('#'+'\t'.join(header_names) + '\n')
 
-            for u, v in tqdm(self.variant_edges):
+            for u, v in tqdm(sorted(list(self.variant_edges))):
                 if self.nodes[u]['direction'] != self.nodes[v]['direction']:
                     continue  # TODO how to handle inversions?
 
@@ -259,34 +282,34 @@ class PangenomeGraph(nx.DiGraph):
 
                 allele_data_list = []
 
+                # 'CHROM'
                 allele_data_list.append(chr_name)
-                allele_data_list.append(str(self.nodes[u]['position']))
-                allele_data_list.append(str(self.nodes[v]['position']))
-
-                if 'on_reference_path' in self.nodes[v]:
-                    allele_data_list.append(ref)
-                else:
-                    allele_data_list.append('')
+                # 'POS'
+                allele_data_list.append(str(int(self.nodes[u]['position'])))
+                # 'ID'
+                allele_data_list.append('.')
+                # 'REF'
+                allele_data_list.append(ref)
+                # 'ALT'
                 allele_data_list.append(alt)
-
-                if not 'on_reference_path' in self.nodes[v]:
-                    allele_data_list.append(ref)
-                else:
-                    allele_data_list.append('')
-
+                # 'QUAL'
+                allele_data_list.append('0')
+                # 'FILTER'
+                allele_data_list.append('PASS')
+                # 'INFO'
                 if u not in node_to_line:
                     print(u, list(node_to_line.items()))
-
-                allele_data_list.append(str(node_to_line[u]))
-                allele_data_list.append(str(node_to_line[v]))
+                allele_data_list.append(f'LU={int(node_to_line[u])};LV={int(node_to_line[v])}')
+                # 'FORMAT'
+                allele_data_list.append('GT')
 
                 for sample_name in sorted_sample_names:
                     if edge in sample_genotype_dict[sample_name]:
                         allele_data_list.append(str(sample_genotype_dict[sample_name][edge]))
                     else:
-                        allele_data_list.append('0')
+                        allele_data_list.append('0|0')
 
-                file.write(','.join(allele_data_list) + '\n')
+                file.write('\t'.join(allele_data_list) + '\n')
 
     def write_tree(self, filename: str) -> list:
         with open(filename, 'w') as file:
@@ -460,8 +483,8 @@ class PangenomeGraph(nx.DiGraph):
 
         branch_point = self.edges[u, v]['branch_point']
         if self.nodes[u]['direction'] == -1:
-            u, v = _edge_complement((u, v))
-            branch_point = _node_complement(branch_point)
+             u, v = _edge_complement((u, v))
+        #     branch_point = _node_complement(branch_point)
 
         ref_path, ref_search_limit = self.walk_up_tree(branch_point, v, walkup_limit)
         alt_path, alt_search_limit = self.walk_up_tree(branch_point, u, walkup_limit)
@@ -505,11 +528,44 @@ class PangenomeGraph(nx.DiGraph):
         return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
 
     def integrate_genotype_by_sample(self, sample_names, walks):
-        sample_genotype_dict = defaultdict(Counter)
+        sample_haplotype_dict = defaultdict(Counter)
+        sample_diploid_dict = defaultdict(list)
+
         for sample_name, walk in zip(sample_names, walks):
-            walk_genotype_dict = self.genotype(walk)
-            sample_genotype_dict[sample_name].update(walk_genotype_dict)
-        return sample_genotype_dict
+            walk_haplotype_dict = self.genotype(walk)
+            sample_haplotype_dict[sample_name].update(walk_haplotype_dict)
+
+        for k, v in sample_haplotype_dict.items():
+            sample_name, _ = k.split('_')
+            sample_diploid_dict[sample_name].append(v)
+
+        def concatenate_dicts(dicts: list[Counter]):
+            result_dict = dict()
+
+            dict_1 = dicts[0]
+
+            if len(dicts) == 1:
+                dict_2 = dict()
+            elif len(dicts) == 2:
+                dict_2 = dicts[1]
+            else:
+                raise ValueError("This should never happen")
+
+            all_keys = set(dict_1.keys()).union(set(dict_2.keys()))
+
+            for key in all_keys:
+                if key in dict_1 and key in dict_2:
+                    result_dict[key] = f"{dict_1[key]}|{dict_2[key]}"
+                elif key in dict_1:
+                    result_dict[key] = f"{dict_1[key]}|0"
+                elif key in dict_2:
+                    result_dict[key] = f"0|{dict_2[key]}"
+                else:
+                    raise ValueError("This should never happen")
+
+            return result_dict
+
+        return {k: concatenate_dicts(v) for k, v in sample_diploid_dict.items()}
 
 
     def genotype(self, walk: list[str]) -> dict:
