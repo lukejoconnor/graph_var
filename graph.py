@@ -244,7 +244,13 @@ class PangenomeGraph(nx.DiGraph):
                   walkup_limit: int = 50) -> None:
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
 
-        meta_info = f'##fileformat=VCFv4.2\n' \
+        meta_info = f'##fileformat=VCFv4.2\n'
+        meta_info += f'##contig=<ID={chr_name[3:]}>\n'
+        meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
+        meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
+        meta_info += f'##INFO=<ID=LU,Number=1,Type=Integer,Description="Line number in the tree file">\n'
+        meta_info += f'##INFO=<ID=LV,Number=1,Type=Integer,Description="Line number in the tree file">\n'
+        meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
 
         order: list = self.write_tree(tree_filename)
         node_to_line = {node: line for line, node in enumerate(order)}
@@ -252,12 +258,13 @@ class PangenomeGraph(nx.DiGraph):
         with open(vcf_filename, 'w') as file:
             # Write the header row
             sample_genotype_dict = self.integrate_genotype_by_sample(sample_names, walks)
+            sample_genotype_dict.pop('GRCh38')
             sorted_sample_names = sorted(sample_genotype_dict.keys())
             header_names = list(self.vcf_attribute_names) + sorted_sample_names
             file.write(meta_info)
             file.write('#'+'\t'.join(header_names) + '\n')
 
-            for u, v in tqdm(sorted(list(self.variant_edges))):
+            for u, v in tqdm(sorted(list(self.variant_edges), key=lambda x: self.nodes[x[0]]['position'])):
                 if self.nodes[u]['direction'] != self.nodes[v]['direction']:
                     continue  # TODO how to handle inversions?
 
@@ -294,15 +301,21 @@ class PangenomeGraph(nx.DiGraph):
                 # 'INFO'
                 if u not in node_to_line:
                     print(u, list(node_to_line.items()))
-                allele_data_list.append(f'LU={int(node_to_line[u])};LV={int(node_to_line[v])}')
+                allele_data_list.append(f'PU={int(self.nodes[u]["position"])};PV={int(self.nodes[v]["position"])};LU={int(node_to_line[u])};LV={int(node_to_line[v])}')
                 # 'FORMAT'
                 allele_data_list.append('GT')
 
                 for sample_name in sorted_sample_names:
                     if edge in sample_genotype_dict[sample_name]:
-                        allele_data_list.append(str(sample_genotype_dict[sample_name][edge]))
+                        if str(sample_name).startswith("CHM"):
+                            allele_data_list.append(str(sample_genotype_dict[sample_name][edge][:1]))
+                        else:
+                            allele_data_list.append(str(sample_genotype_dict[sample_name][edge]))
                     else:
-                        allele_data_list.append('0|0')
+                        if str(sample_name).startswith("CHM"):
+                            allele_data_list.append('0')
+                        else:
+                            allele_data_list.append('0|0')
 
                 file.write('\t'.join(allele_data_list) + '\n')
 
