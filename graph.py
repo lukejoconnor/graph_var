@@ -42,6 +42,11 @@ class PangenomeGraph(nx.DiGraph):
     def vcf_attribute_names(self) -> tuple:
         return 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT'
 
+    def edge_on_reference_path(self, edge: tuple):
+        if not self.has_edge(edge):
+            raise ValueError("Graph does not have edge {edge}")
+        return self.nodes[edge[1]]['on_reference_path']
+
     @classmethod
     def from_gfa(cls,
                  gfa_file: str,
@@ -79,7 +84,7 @@ class PangenomeGraph(nx.DiGraph):
         if reference_path_index >= len(walks) or reference_path_index < 0:
             raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
 
-        G.reference_path = walks[reference_path_index]
+        G.add_reference_path(walks[reference_path_index])
         assign_node_directions(G, G.reference_path)
 
         walk_start_nodes = [walk[0] for walk in walks]
@@ -179,6 +184,18 @@ class PangenomeGraph(nx.DiGraph):
         ref, alt, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == len(alt) == 1
 
+    def is_mnp(self, edge):
+        if not self.is_crossing_edge(edge):
+            return False
+        ref, alt, _, _ = self.ref_alt_alleles(edge)
+        return len(ref) == len(alt) > 1
+
+    def add_reference_path(self, reference_walk):
+        self.reference_path = reference_walk
+        for node in reference_walk:
+            self.nodes[node]['on_reference_path'] = 1
+            self.nodes[_node_complement(node)]['on_reference_path'] = 1
+
 
     def add_terminal_nodes(self, walk_start_nodes: list[str]=None, walk_end_nodes: list[str]=None):
         """Add two terminal binodes, +_terminus and -_terminus, to the graph. A valid walk proceeds
@@ -218,6 +235,11 @@ class PangenomeGraph(nx.DiGraph):
 
         # reference path is assumed to be in the positive direction
         self.reference_path = [plus_terminus + '_+'] + self.reference_path + [minus_terminus + '_+']
+        self.nodes[plus_terminus + '_+']['on_reference_path'] = 1
+        self.nodes[plus_terminus + '_-']['on_reference_path'] = 1
+        self.nodes[minus_terminus + '_+']['on_reference_path'] = 1
+        self.nodes[minus_terminus + '_-']['on_reference_path'] = 1
+
 
     def compute_reference_tree(self):
 
@@ -399,6 +421,15 @@ class PangenomeGraph(nx.DiGraph):
             # Only include forward direction nodes
             if self.nodes[u]['direction'] == 1:
                 self.reference_tree.add_edge(u, v)
+
+        # Connect non-terminus roots of the reference tree (forest) with terminus
+        root = self.termini[0] + '_+'
+        source_nodes = [node for node, in_degree in self.reference_tree.in_degree if in_degree == 0]
+        for source_node in source_nodes:
+            if source_node == root:
+                continue
+            assert not self.reference_tree.has_edge(root, source_node)
+            self.reference_tree.add_edge(root, source_node)
 
     def add_binode(self, binode: str, seq: str = ''):
         node_data = {key: 0 for key in self.node_attribute_names}
@@ -688,9 +719,9 @@ class PangenomeGraph(nx.DiGraph):
 
         current_position = 0
         for u in self.reference_path:
+            current_position += len(self.nodes[u]['sequence'])
             self.nodes[u]['position'] = current_position
             self.nodes[u]['forward_position'] = current_position
-            current_position += len(self.nodes[u]['sequence'])
 
         order = list(nx.topological_sort(self.reference_tree))
         for u in order[1:]: # skip the root
@@ -709,3 +740,18 @@ class PangenomeGraph(nx.DiGraph):
             self.nodes[u]['forward_position'] = np.minimum(self.nodes[u]['forward_position'],
                                                             successors_minimum_position)
             self.nodes[_node_complement(u)]['forward_position'] = self.nodes[u]['forward_position']
+
+    def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges = True) -> list:
+        start, end = half_open_interval
+        result = []
+        for edge in self.variant_edges:
+            u, v = edge
+            positions = [self.nodes[u]['position'], self.nodes[v]['position']]
+            x, y = min(positions), max(positions)
+            if x < end and y >= start:
+                result.append(edge)
+
+        if exclude_root_edges:
+            result = [(u,v) for u,v in result if u != '+_terminus_+' and v != '+_terminus_-']
+
+        return result
