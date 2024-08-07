@@ -267,12 +267,15 @@ class PangenomeGraph(nx.DiGraph):
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
 
         meta_info = f'##fileformat=VCFv4.2\n'
-        meta_info += f'##contig=<ID={chr_name[3:]}>\n'
+        meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        meta_info += f'##INFO=<ID=NR,Number=1,Type=String,Description="The reference allele if it is not on reference path.">\n'
         meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
         meta_info += f'##INFO=<ID=LU,Number=1,Type=Integer,Description="Line number in the tree file">\n'
         meta_info += f'##INFO=<ID=LV,Number=1,Type=Integer,Description="Line number in the tree file">\n'
-        meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        meta_info += f'##INFO=<ID=RL,Number=1,Type=Integer,Description="Reference allele reach search limit">\n'
+        meta_info += f'##INFO=<ID=AL,Number=1,Type=Integer,Description="Alternative allele reach search limit">\n'
+        meta_info += f'##contig=<ID={chr_name[3:]}>\n'
 
         order: list = self.write_tree(tree_filename)
         node_to_line = {node: line for line, node in enumerate(order)}
@@ -294,7 +297,9 @@ class PangenomeGraph(nx.DiGraph):
                     u, v = _edge_complement((u,v))
                 edge = (u, v)
 
-                ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge, walkup_limit=walkup_limit)
+                ref_allele, alt_allele, last_letter_of_branch_point, branch_point, ref_limit, alt_limit = self.ref_alt_alleles(edge,
+                                                                                                         walkup_limit=walkup_limit,
+                                                                                                         return_search_bool=True)
                 # ref_allele, alt_allele, last_letter_of_branch_point, branch_point = '', '', '', ''
 
                 if len(ref_allele) == 0 or len(alt_allele) == 0:
@@ -306,10 +311,19 @@ class PangenomeGraph(nx.DiGraph):
 
                 allele_data_list = []
 
+                if self.nodes[v]['on_reference_path'] == 1:
+                    new_ref = None
+                else:
+                    new_ref = ref
+                    ref = 'N'
+
                 # 'CHROM'
                 allele_data_list.append(chr_name)
                 # 'POS'
-                allele_data_list.append(str(int(self.nodes[u]['position'])))
+                if (self.is_snp(edge) or self.is_mnp(edge)) and self.nodes[v]['on_reference_path'] == 1:
+                    allele_data_list.append(str(int(self.nodes[u]['position']) + 1))
+                else:
+                    allele_data_list.append(str(int(self.nodes[u]['position'])))
                 # 'ID'
                 allele_data_list.append('.')
                 # 'REF'
@@ -323,7 +337,14 @@ class PangenomeGraph(nx.DiGraph):
                 # 'INFO'
                 if u not in node_to_line:
                     print(u, list(node_to_line.items()))
-                allele_data_list.append(f'PU={int(self.nodes[u]["position"])};PV={int(self.nodes[v]["position"])};LU={int(node_to_line[u])};LV={int(node_to_line[v])}')
+
+                allele_data_list.append(f'NR={new_ref};'
+                                        f'PU={int(self.nodes[u]["position"])};'
+                                        f'PV={int(self.nodes[v]["position"])};'
+                                        f'LU={int(node_to_line[u])};'
+                                        f'LV={int(node_to_line[v])};'
+                                        f'RL={int(ref_limit)};'
+                                        f'AL={int(alt_limit)};')
                 # 'FORMAT'
                 allele_data_list.append('GT')
 
@@ -505,7 +526,9 @@ class PangenomeGraph(nx.DiGraph):
         return result, reach_limit
 
     # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
-    def ref_alt_alleles(self, variant_edge: tuple, walkup_limit: int = 50) -> tuple[str,str,str,str]:
+    def ref_alt_alleles(self, variant_edge: tuple,
+                        walkup_limit: int = 50,
+                        return_search_bool=False):
         """
         Computes the reference allele and alternative allele of the branch point for each variant edge.
         :param variant_edges: list of tuples (u,v).
@@ -564,7 +587,10 @@ class PangenomeGraph(nx.DiGraph):
             branch_sequence = 'N'
         last_letter_of_branch_point = branch_sequence[-1]
 
-        return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
+        if return_search_bool:
+            return ref_allele, alt_allele, last_letter_of_branch_point, branch_point, ref_search_limit, alt_search_limit
+        else:
+            return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
 
     def integrate_genotype_by_sample(self, sample_names, walks):
         sample_haplotype_dict = defaultdict(Counter)
