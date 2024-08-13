@@ -767,9 +767,10 @@ class PangenomeGraph(nx.DiGraph):
                                                             successors_minimum_position)
             self.nodes[_node_complement(u)]['forward_position'] = self.nodes[u]['forward_position']
 
-    def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges = True) -> list:
+    def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges=True) -> list:
         start, end = half_open_interval
         result = []
+
         for edge in self.variant_edges:
             u, v = edge
             positions = [self.nodes[u]['position'], self.nodes[v]['position']]
