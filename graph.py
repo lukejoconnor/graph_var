@@ -331,7 +331,7 @@ class PangenomeGraph(nx.DiGraph):
                 # 'ALT'
                 allele_data_list.append(alt)
                 # 'QUAL'
-                allele_data_list.append('0')
+                allele_data_list.append('60')
                 # 'FILTER'
                 allele_data_list.append('PASS')
                 # 'INFO'
@@ -361,6 +361,12 @@ class PangenomeGraph(nx.DiGraph):
                             allele_data_list.append('0|0')
 
                 file.write('\t'.join(allele_data_list) + '\n')
+
+    def write_variant_node_ids(self, filename: str) -> None:
+        with open(filename, 'w') as file:
+            file.write("Node_u_id,Node_v_id\n")
+            for u, v in self.variant_edges:
+                file.write(f"{u},{v}\n")
 
     def write_tree(self, filename: str) -> list:
         with open(filename, 'w') as file:
