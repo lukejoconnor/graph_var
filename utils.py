@@ -1,5 +1,6 @@
 import re
 import gzip
+import pickle
 
 def _sequence_reversed_complement(s: str) -> str:
     def _base_complement(letter: str) -> str:
@@ -71,3 +72,10 @@ def read_gfa(filename, compressed=False):
           walks.append(node_ids)
           walk_sample_names.append(sample_name)
   return nodes, edges, walks, walk_sample_names, sequences
+
+def load_graph_from_pkl(path):
+    with gzip.open(path, 'rb') as file:
+        G = pickle.load(file)
+        walks = pickle.load(file)
+        walk_sample_names = pickle.load(file)
+    return G, walks, walk_sample_names
