@@ -19,6 +19,9 @@ class PangenomeGraph(nx.DiGraph):
     def termini(self) -> tuple[str, str]:
         return '+_terminus', '-_terminus'
 
+    def is_terminal_node(self, node: str) -> bool:
+        return node[:-2] in self.termini
+
     # Each biedge has a representative edge, whichever is in the .gfa file
     @property
     def sorted_biedge_representatives(self) -> list[str]:
@@ -42,6 +45,10 @@ class PangenomeGraph(nx.DiGraph):
     def vcf_attribute_names(self) -> tuple:
         return 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT'
 
+    @property
+    def number_of_binodes(self) -> int:
+        return self.number_of_nodes() // 2
+
     def edge_on_reference_path(self, edge: tuple):
         if not self.has_edge(edge):
             raise ValueError("Graph does not have edge {edge}")
@@ -52,6 +59,7 @@ class PangenomeGraph(nx.DiGraph):
                  gfa_file: str,
                  reference_path_index: int,
                  edgeinfo_file: str = None,
+                 nodeinfo_file: str = None,
                  return_walks: bool = False,
                  compressed: bool = False
                  ):
@@ -85,7 +93,13 @@ class PangenomeGraph(nx.DiGraph):
             raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
 
         G.add_reference_path(walks[reference_path_index])
-        assign_node_directions(G, G.reference_path)
+
+        if nodeinfo_file:
+            print("Reading nodeinfo file")
+            G.read_nodeinfo(nodeinfo_file)
+        else:
+            print("Assigning node directions")
+            assign_node_directions(G, G.reference_path)
 
         walk_start_nodes = [walk[0] for walk in walks]
         walk_end_nodes = [walk[-1] for walk in walks]
@@ -101,8 +115,9 @@ class PangenomeGraph(nx.DiGraph):
             print("Computing branch points")
             G.annotate_branch_points()
 
-        print("Computing positions")
-        G.compute_binode_positions()
+        if not nodeinfo_file:
+            print("Computing positions")
+            G.compute_binode_positions()
 
         if return_walks:
             return G, walks, walk_sample_names
@@ -240,6 +255,15 @@ class PangenomeGraph(nx.DiGraph):
         self.nodes[minus_terminus + '_+']['on_reference_path'] = 1
         self.nodes[minus_terminus + '_-']['on_reference_path'] = 1
 
+        chromosome_length = self.nodes[self.reference_path[-2]]['position']
+        self.nodes[plus_terminus + '_+']['position'] = 0
+        self.nodes[plus_terminus + '_-']['position'] = 0
+        self.nodes[minus_terminus + '_+']['position'] = chromosome_length
+        self.nodes[minus_terminus + '_-']['position'] = chromosome_length
+        self.nodes[plus_terminus + '_+']['forward_position'] = 0
+        self.nodes[plus_terminus + '_-']['forward_position'] = 0
+        self.nodes[minus_terminus + '_+']['forward_position'] = chromosome_length
+        self.nodes[minus_terminus + '_-']['forward_position'] = chromosome_length
 
     def compute_reference_tree(self):
 
@@ -403,6 +427,19 @@ class PangenomeGraph(nx.DiGraph):
                 edge_data_list = [to_string(data[key]) for key in self.biedge_attribute_names]
                 file.write(','.join(edge_data_list) + '\n')
 
+    def write_nodeinfo(self, filename: str) -> None:
+
+        attributes = [attribute for attribute in self.node_attribute_names if attribute != 'sequence']
+        with open(filename, 'w') as file:
+            file.write('node,')
+            file.write(','.join(attributes) + '\n')
+
+            for node, data in self.nodes(data=True):
+                if self.is_terminal_node(node):
+                    continue
+                file.write(f'{node},')
+                file.write(','.join([str(data[key]) for key in attributes]) + '\n')
+
     def read_edgeinfo(self, filename: str) -> None:
 
         def from_string(s: str):
@@ -451,6 +488,25 @@ class PangenomeGraph(nx.DiGraph):
                 continue
             assert not self.reference_tree.has_edge(root, source_node)
             self.reference_tree.add_edge(root, source_node)
+
+    def read_nodeinfo(self, filename: str) -> None:
+        def from_string(s: str):
+            try:
+                float(s)
+                return float(s)
+            except ValueError:
+                return s
+
+        with open(filename, 'r') as file:
+            line = next(file).strip().split(',')
+            attributes = {key: idx for idx, key in enumerate(line) if key != 'node'}
+            for line in file:
+                parts = line.strip().split(',')
+                node = parts[0]
+                for key, idx in attributes.items():
+                    self.nodes[node][key] = from_string(parts[idx])
+
+
 
     def add_binode(self, binode: str, seq: str = ''):
         node_data = {key: 0 for key in self.node_attribute_names}
