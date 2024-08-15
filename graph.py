@@ -355,7 +355,7 @@ class PangenomeGraph(nx.DiGraph):
                 # 'ALT'
                 allele_data_list.append(alt)
                 # 'QUAL'
-                allele_data_list.append('0')
+                allele_data_list.append('60')
                 # 'FILTER'
                 allele_data_list.append('PASS')
                 # 'INFO'
@@ -385,6 +385,12 @@ class PangenomeGraph(nx.DiGraph):
                             allele_data_list.append('0|0')
 
                 file.write('\t'.join(allele_data_list) + '\n')
+
+    def write_variant_node_ids(self, filename: str) -> None:
+        with open(filename, 'w') as file:
+            file.write("Node_u_id,Node_v_id\n")
+            for u, v in self.variant_edges:
+                file.write(f"{u},{v}\n")
 
     def write_tree(self, filename: str) -> list:
         with open(filename, 'w') as file:
@@ -823,9 +829,10 @@ class PangenomeGraph(nx.DiGraph):
                                                             successors_minimum_position)
             self.nodes[_node_complement(u)]['forward_position'] = self.nodes[u]['forward_position']
 
-    def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges = True) -> list:
+    def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges=True) -> list:
         start, end = half_open_interval
         result = []
+
         for edge in self.variant_edges:
             u, v = edge
             positions = [self.nodes[u]['position'], self.nodes[v]['position']]
