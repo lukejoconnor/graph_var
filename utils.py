@@ -32,6 +32,15 @@ def _node_recover(node_id):
     else:
         raise ValueError()
 
+def _node_convert(node_id):
+    direction, node = node_id[0], node_id[1:]
+    if direction == '>':
+        return node+"_+"
+    elif direction == '<':
+        return node+"_-"
+    else:
+        raise ValueError()
+
 def read_gfa(filename, compressed=False):
   nodes = []
   sequences = []
