@@ -7,16 +7,28 @@ from typing import List, Tuple, Union, Dict, Set, Optional
 from collections import defaultdict
 from utils import _node_convert
 
+def get_node_id_symbol(node: str) -> Tuple[str, str]:
+    node_split = node.split('_')
+    if len(node_split) == 2:
+        node_id, symbol = node_split
+    elif len(node_split) == 3:  # for terminals
+        direction, node_id, symbol = node_split
+        node_id = direction + "_" + node_id
+    else:
+        raise ValueError(f"Invalid node ID: {node}")
+
+    return node_id, symbol
+
 def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
     with open(filename, 'wb') as gfa_file:
-        for node, node_attr in G.reference_tree.nodes(data=True):
-            node_id, symbol = node.split('_')
-            gfa_file.write(f'S\t{node_id}\t{node_attr["sequence"]}\n'.encode())
+        for node in G.reference_tree.nodes(data=False):
+            node_id, symbol = get_node_id_symbol(node)
+            gfa_file.write(f'S\t{node_id}\t{G.nodes[node].get("sequence", "*")}\n'.encode())
 
-        for edge in G.reference_tree.edges(data=True):
-            u, v, edge_attr = edge
-            u_id, u_symbol = u.split('_')
-            v_id, v_symbol = v.split('_')
+        for edge in G.reference_tree.edges(data=False):
+            u, v = edge
+            u_id, u_symbol = get_node_id_symbol(u)
+            v_id, v_symbol = get_node_id_symbol(v)
             gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
 
 def write_nodes_to_txt(nodes: List[str], filename: str):
