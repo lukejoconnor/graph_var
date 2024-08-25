@@ -149,12 +149,15 @@ class PangenomeGraph(nx.DiGraph):
                 summary_dict['inversions'] = summary_dict.get('inversions', 0) + 1
             if self.is_snp(edge):
                 summary_dict['snps'] = summary_dict.get('snps', 0) + 1
+            if self.is_mnp(edge):
+                summary_dict['mnps'] = summary_dict.get('mnps', 0) + 1
             if self.is_crossing_edge(edge):
                 summary_dict['crossing_edges'] = summary_dict.get('crossing_edges', 0) + 1
             if self.is_back_edge(edge):
                 summary_dict['back_edges'] = summary_dict.get('back_edges', 0) + 1
             if self.is_forward_edge(edge):
                 summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
+        summary_dict['total'] = len(self.variant_edges)
         return summary_dict
 
     def is_inversion(self, edge):
