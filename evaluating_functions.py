@@ -1,3 +1,5 @@
+import os.path
+
 from graph import PangenomeGraph
 import re
 import numpy as np
@@ -5,7 +7,9 @@ from tqdm import tqdm
 from intervaltree import Interval, IntervalTree
 from typing import List, Tuple, Union, Dict, Set, Optional
 from collections import defaultdict
-from utils import _node_convert
+from utils import _node_convert, load_graph_from_pkl, save_graph_to_pkl
+import pandas as pd
+import ast
 
 def get_node_id_symbol(node: str) -> Tuple[str, str]:
     node_split = node.split('_')
@@ -72,10 +76,13 @@ def extract_node_bubble_partition_from_vcf(vcf_path: str) -> Tuple[Dict, Dict]:
             ID = parts[2]
             INFO = parts[7]
             INFO_list = INFO.split(';')
-            AT = [x for x in INFO_list if x.startswith('AT=')][0]
+            data_dict = {x.split('=')[0]: x.split('=')[1] for x in INFO_list}
+            AT = data_dict['AT']
             bubble_id_tuple = extract_bubble_ids(ID)
             nodes_list = extract_nodes_in_bubble(AT)
-            bubbles[bubble_id_tuple] = nodes_list
+
+            bubbles[bubble_id_tuple] = data_dict
+
             for node in nodes_list:
                 node_partition[node].add(bubble_id_tuple)
 
@@ -148,6 +155,118 @@ def get_variants_for_bubbles(G: PangenomeGraph,
                 bubble_crossing_variants[bubble].add(edge)
 
     return bubble_within_variants, bubble_crossing_variants
+
+def variant_edges_summary(G: PangenomeGraph, var_list: list) -> Dict:
+    summary_dict = dict()
+    for edge in sorted(list(var_list)):
+        if G.is_inversion(edge):
+            summary_dict['inversions'] = summary_dict.get('inversions', 0) + 1
+        if G.is_snp(edge):
+            summary_dict['snps'] = summary_dict.get('snps', 0) + 1
+        if G.is_mnp(edge):
+            summary_dict['mnps'] = summary_dict.get('mnps', 0) + 1
+        if G.is_crossing_edge(edge):
+            summary_dict['crossing_edges'] = summary_dict.get('crossing_edges', 0) + 1
+        if G.is_back_edge(edge):
+            summary_dict['back_edges'] = summary_dict.get('back_edges', 0) + 1
+        if G.is_forward_edge(edge):
+            summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
+    summary_dict['total'] = len(var_list)
+    return summary_dict
+
+def write_bubble_summary_result(gfa_path: str,
+                                vcf_path: str,
+                                save_pangenome_graph: Optional[bool] = False,
+                                G_pkl_path: Optional[str] = None,
+                                reference_path_index: Optional[int] = None,
+                                output_dir: Optional[str] = './',
+                                method: Optional[str] = "AT",
+                                bubble_dict: Optional[Dict] = None,
+                                node_partition: Optional[Dict] = None,
+                                compressed: Optional[bool] = False):
+    if not os.path.isfile(gfa_path):
+        raise FileNotFoundError(f"GFA file not found: {gfa_path}")
+
+    if not os.path.isfile(vcf_path):
+        raise FileNotFoundError(f"VCF file not found: {vcf_path}")
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    if G_pkl_path and os.path.isfile(G_pkl_path):
+        print(f"Loading graph from {G_pkl_path}...")
+        G, walks, walk_sample_names = load_graph_from_pkl(G_pkl_path, compressed=compressed)
+        chr_name = os.path.basename(G_pkl_path).split('.')[0]
+    else:
+        print("Constructing graph from GFA...")
+        G, walks, walk_sample_names = PangenomeGraph.from_gfa(gfa_path,
+                                                              reference_path_index=reference_path_index,
+                                                              return_walks=True,
+                                                              compressed=False)
+        chr_name = os.path.basename(gfa_path).split('.')[0]
+        if save_pangenome_graph:
+            if compressed:
+                save_path = os.path.join(output_dir, chr_name+'.pkl.gz')
+            else:
+                save_path = os.path.join(output_dir, chr_name+'.pkl')
+            save_graph_to_pkl(G, walks, walk_sample_names, save_path, compressed=compressed)
+
+    print("Assigning node to bubbles...")
+
+    if method == "AT":
+        if node_partition is None or bubble_dict is None:
+            bubble_dict, node_partition = extract_node_bubble_partition_from_vcf(vcf_path)
+        method_suffix = "_AT"
+    elif method == "Position":
+        if node_partition is None or bubble_dict is None:
+            bubble_dict = find_bubbles_from_vcf(G, vcf_path)
+            node_partition = find_node_partition(G, bubble_dict)
+        method_suffix = "_Position"
+    else:
+        raise ValueError(f"Invalid method: {method}")
+
+
+    bubble_var_count_path = f"bubble_variant_counts_{chr_name}{method_suffix}.tsv"
+    dfs_tree_path = f"dfs_tree_{chr_name}.gfa"
+
+    print("Writing DFS tree to GFA...")
+    write_dfs_tree_to_gfa(G, os.path.join(output_dir, dfs_tree_path))
+
+    print("Writing bubble summary to CSV...")
+    var_dict_within, var_dict_missing = get_variants_for_bubbles(G, node_partition)
+
+    bubble_list = list(bubble_dict.keys())
+
+    var_with = [var_dict_within.get(key, {}) for key in bubble_list]
+    var_with_summary = [variant_edges_summary(G, var_dict_within.get(key, [])) for key in bubble_list]
+    var_cross = [var_dict_missing.get(key, {}) for key in bubble_list]
+    var_cross_summary = [variant_edges_summary(G, var_dict_missing.get(key, [])) for key in bubble_list]
+
+    length_with = [len(var_dict_within.get(key, {})) for key in bubble_list]
+    length_cross = [len(var_dict_missing.get(key, {})) for key in bubble_list]
+    length_total = [length_with[i] + length_cross[i] for i in range(len(bubble_list))]
+
+    if method == "AT":
+        AC_sum = [sum(ast.literal_eval(f"[{bubble_dict[x]['AC']}]")) for x in bubble_list]
+    else:
+        AC_sum = ['.'] * len(bubble_list)
+
+    count_summary_df = pd.DataFrame({
+         "Bubble_ids": bubble_list,
+         "Total_count": length_total,
+         "AC_sum": AC_sum,
+         "Within_count": length_with,
+         "Crossing_count": length_cross,
+         "Within": var_with,
+         "Within_summary": var_with_summary,
+         "Crossing": var_cross,
+         "Crossing_summary": var_cross_summary,
+         }
+    )
+
+    count_summary_df.to_csv(os.path.join(output_dir, bubble_var_count_path), sep='\t')
+
+
 
 
 """

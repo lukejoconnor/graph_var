@@ -57,7 +57,7 @@ class PangenomeGraph(nx.DiGraph):
     @classmethod
     def from_gfa(cls,
                  gfa_file: str,
-                 reference_path_index: int,
+                 reference_path_index: int = None,
                  edgeinfo_file: str = None,
                  nodeinfo_file: str = None,
                  return_walks: bool = False,
@@ -73,8 +73,19 @@ class PangenomeGraph(nx.DiGraph):
             if not os.path.exists(edgeinfo_file):
                 raise FileNotFoundError(edgeinfo_file)
 
-        binodes, biedges, walks, walk_sample_names, sequences = read_gfa(gfa_file, compressed=compressed)
+        data_dict = read_gfa(gfa_file, compressed=compressed)
 
+        binodes = data_dict['nodes']
+        biedges = data_dict['edges']
+        walks = data_dict['walks']
+        walk_sample_names = data_dict['walk_sample_names']
+        sequences = data_dict['sequences']
+        reference_index = data_dict['reference_index']
+
+        if reference_path_index is not None:
+            reference_index = reference_path_index
+
+        print("Reference walk:", reference_index)
         print("Num of binodes:", len(binodes))
         print("Num of biedges:", len(biedges))
 
@@ -89,10 +100,10 @@ class PangenomeGraph(nx.DiGraph):
             node2 = biedge[1] + '_' + biedge[3]
             G.add_biedge(node1, node2)
 
-        if reference_path_index >= len(walks) or reference_path_index < 0:
+        if reference_index >= len(walks) or reference_index < 0:
             raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
 
-        G.add_reference_path(walks[reference_path_index])
+        G.add_reference_path(walks[reference_index])
 
         if nodeinfo_file:
             print("Reading nodeinfo file")
@@ -339,10 +350,10 @@ class PangenomeGraph(nx.DiGraph):
                 allele_data_list = []
 
                 if self.nodes[v]['on_reference_path'] == 1:
-                    new_ref = None
+                    new_ref = '.'
                 else:
                     new_ref = ref
-                    ref = 'N'
+                    ref = '.'
 
                 # 'CHROM'
                 allele_data_list.append(chr_name)
@@ -635,14 +646,14 @@ class PangenomeGraph(nx.DiGraph):
 
         alt_allele = ''
         if alt_search_limit:
-            alt_allele = 'N'
+            alt_allele = '.'
         else:
             for node in alt_path:
                 alt_allele += self.nodes[node]['sequence']
 
         ref_allele = ''
         if ref_search_limit:
-            ref_allele = 'N'
+            ref_allele = '.'
         else:
             for node in ref_path:
                 ref_allele += self.nodes[node]['sequence']

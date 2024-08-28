@@ -48,6 +48,10 @@ def read_gfa(filename, compressed=False):
   walks = []
   walk_sample_names = []
   pattern = r'\w+|[<>]'
+  reference_index = 0
+  hit_reference = False
+
+  data_dict = {}
 
   if compressed:
       file = gzip.open(filename, 'rt')
@@ -62,6 +66,11 @@ def read_gfa(filename, compressed=False):
           edge = (parts[1], parts[3], parts[2], parts[4])
           edges.append(edge)
       elif parts[0] == 'W':
+          if not hit_reference:
+              if parts[1] == 'GRCh38' and parts[3].startswith('chr'):
+                  hit_reference = True
+              else:
+                  reference_index += 1
           sample_name = parts[1]+'_'+parts[2]
           p = parts[6]
           matches = re.findall(pattern, p)
@@ -80,11 +89,37 @@ def read_gfa(filename, compressed=False):
           #node_ids.append('end_node')
           walks.append(node_ids)
           walk_sample_names.append(sample_name)
-  return nodes, edges, walks, walk_sample_names, sequences
 
-def load_graph_from_pkl(path):
-    with gzip.open(path, 'rb') as file:
-        G = pickle.load(file)
-        walks = pickle.load(file)
-        walk_sample_names = pickle.load(file)
+  data_dict['nodes'] = nodes
+  data_dict['edges'] = edges
+  data_dict['walks'] = walks
+  data_dict['walk_sample_names'] = walk_sample_names
+  data_dict['sequences'] = sequences
+  data_dict['reference_index'] = reference_index
+
+  return data_dict
+
+def save_graph_to_pkl(G, walks, walk_sample_names, path, compressed=False):
+    if compressed:
+        with gzip.open(path, 'wb') as file:
+            pickle.dump(G, file, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(walks, file, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(walk_sample_names, file, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        with open(path, 'wb') as file:
+            pickle.dump(G, file, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(walks, file, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(walk_sample_names, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+def load_graph_from_pkl(path, compressed=False):
+    if compressed:
+        with gzip.open(path, 'rb') as file:
+            G = pickle.load(file)
+            walks = pickle.load(file)
+            walk_sample_names = pickle.load(file)
+    else:
+        with open(path, 'rb') as file:
+            G = pickle.load(file)
+            walks = pickle.load(file)
+            walk_sample_names = pickle.load(file)
     return G, walks, walk_sample_names
