@@ -207,6 +207,12 @@ class PangenomeGraph(nx.DiGraph):
             return False
         return True
 
+    def is_insertion(self, edge):
+        if not self.is_crossing_edge(edge):
+            return False
+        ref, _, _, _ = self.ref_alt_alleles(edge)
+        return len(ref) == 0
+
     def is_snp(self, edge):
         if not self.is_crossing_edge(edge):
             return False
