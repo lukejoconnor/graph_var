@@ -870,3 +870,47 @@ class PangenomeGraph(nx.DiGraph):
             result = [(u,v) for u,v in result if u != '+_terminus_+' and v != '+_terminus_-']
 
         return result
+
+    def classify_triallelic_bubble(self, start: str, end: str, variants: list) -> str:
+        """
+        Classifies a triallelic superbubble from start to end node as either:
+        overlapping: one pair of the three alleles share one subsequence
+        interlocking: two different pairs of alleles share one subsequence each
+        nested: one pair of alleles shares two noncontiguous subsequences
+        properly_triallelic: no pair of alleles shares a subsequence
+
+        :param start: starting node of the superbubble
+        :param end: ending node
+        :param variants: list of variants within the superbubble; there must be two of them
+        :return: the class of superbubble
+        """
+        if len(variants) != 2:
+            raise ValueError
+        if not self.has_node(start) or not self.has_node(end):
+            raise ValueError
+
+        start_degree = self.out_degree(start)
+        end_degree = self.in_degree(end)
+        assert start_degree <= 3 and end_degree <= 3, \
+            f"Starting and ending nodes of the bubble had degree {start_degree} and {end_degree}"
+
+        if start_degree == 3 and end_degree == 3:
+            return 'properly_triallelic'
+
+        if start_degree == 3 or end_degree == 3:
+            return 'overlapping'
+
+        for e in variants:
+            branch_point = self.edges[e]['branch_point']
+            end_point = e[1]
+            if branch_point == start and end_point == end:
+                return 'nested'
+            if branch_point == end and end_point == start:
+                return 'nested'  # repeat with a nested variant
+
+        return 'interlocking'
+
+
+
+
+
