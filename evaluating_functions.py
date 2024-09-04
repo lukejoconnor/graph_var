@@ -160,7 +160,11 @@ def variant_edges_summary(G: PangenomeGraph, var_list: list) -> Dict:
     summary_dict = dict()
     for edge in sorted(list(var_list)):
         if G.is_inversion(edge):
-            summary_dict['inversions'] = summary_dict.get('inversions', 0) + 1
+            summary_dict['inversion'] = summary_dict.get('inversion', 0) + 1
+        if G.is_replacement(edge):
+            summary_dict['replacement'] = summary_dict.get('replacement', 0) + 1
+        if G.is_insertion(edge):
+            summary_dict['insertion'] = summary_dict.get('insertion', 0) + 1
         if G.is_snp(edge):
             summary_dict['snps'] = summary_dict.get('snps', 0) + 1
         if G.is_mnp(edge):
@@ -173,6 +177,46 @@ def variant_edges_summary(G: PangenomeGraph, var_list: list) -> Dict:
             summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
     summary_dict['total'] = len(var_list)
     return summary_dict
+
+def get_interval_tree_from_bed(bed_file: str, chr_name: str) -> IntervalTree:
+    interval_tree = IntervalTree()
+    with open(bed_file, 'r') as bed:
+        for line in bed:
+            parts = line.strip().split('\t')
+            if parts[0] != chr_name:
+                continue
+            start = int(parts[1])
+            end = int(parts[2])
+            interval_tree.add(Interval(start, end))
+    return interval_tree
+
+def variant_summary_result_by_region(G: PangenomeGraph,
+                                 bed_file: str = None,
+                                 chr_name: str = None,
+                                 within_only: bool = True) -> Dict:
+    if bed_file:
+        # def check_edge_in_region(pos_u, pos_v, start, end):
+        #     return (start <= pos_u <= end) and (start <= pos_v <= end)
+        assert chr_name, "Chromosome name is required for BED file"
+        interval_tree = get_interval_tree_from_bed(bed_file, chr_name)
+        egde_in_region = []
+        for edge in G.variant_edges:
+            u, v = edge
+            pos_u = G.nodes[u]['position']
+            pos_v = G.nodes[v]['position']
+
+            if within_only:
+                is_in_region = len(interval_tree[pos_u]) > 0 and len(interval_tree[pos_v]) > 0
+            else:
+                is_in_region = len(interval_tree[pos_u]) > 0 or len(interval_tree[pos_v]) > 0
+
+            if is_in_region:
+                egde_in_region.append(edge)
+    else:
+        egde_in_region = list(G.variant_edges)
+
+    var_dict = variant_edges_summary(G, egde_in_region)
+    return var_dict
 
 def write_bubble_summary_result(gfa_path: str,
                                 vcf_path: str,
@@ -233,17 +277,17 @@ def write_bubble_summary_result(gfa_path: str,
     write_dfs_tree_to_gfa(G, os.path.join(output_dir, dfs_tree_path))
 
     print("Writing bubble summary to CSV...")
-    var_dict_within, var_dict_missing = get_variants_for_bubbles(G, node_partition)
+    var_dict_within, var_dict_crossing = get_variants_for_bubbles(G, node_partition)
 
     bubble_list = list(bubble_dict.keys())
 
     var_with = [var_dict_within.get(key, {}) for key in bubble_list]
     var_with_summary = [variant_edges_summary(G, var_dict_within.get(key, [])) for key in bubble_list]
-    var_cross = [var_dict_missing.get(key, {}) for key in bubble_list]
-    var_cross_summary = [variant_edges_summary(G, var_dict_missing.get(key, [])) for key in bubble_list]
+    var_cross = [var_dict_crossing.get(key, {}) for key in bubble_list]
+    var_cross_summary = [variant_edges_summary(G, var_dict_crossing.get(key, [])) for key in bubble_list]
 
     length_with = [len(var_dict_within.get(key, {})) for key in bubble_list]
-    length_cross = [len(var_dict_missing.get(key, {})) for key in bubble_list]
+    length_cross = [len(var_dict_crossing.get(key, {})) for key in bubble_list]
     length_total = [length_with[i] + length_cross[i] for i in range(len(bubble_list))]
 
     if method == "AT":
