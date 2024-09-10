@@ -157,7 +157,11 @@ class PangenomeGraph(nx.DiGraph):
         summary_dict = dict()
         for edge in tqdm(sorted(list(self.variant_edges))):
             if self.is_inversion(edge):
-                summary_dict['inversions'] = summary_dict.get('inversions', 0) + 1
+                summary_dict['inversion'] = summary_dict.get('inversion', 0) + 1
+            if self.is_replacement(edge):
+                summary_dict['replacement'] = summary_dict.get('replacement', 0) + 1
+            if self.is_insertion(edge):
+                summary_dict['insertion'] = summary_dict.get('insertion', 0) + 1
             if self.is_snp(edge):
                 summary_dict['snps'] = summary_dict.get('snps', 0) + 1
             if self.is_mnp(edge):
@@ -169,6 +173,10 @@ class PangenomeGraph(nx.DiGraph):
             if self.is_forward_edge(edge):
                 summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
         summary_dict['total'] = len(self.variant_edges)
+        # Desired order of keys
+        key_order = ['snps', 'mnps', 'insertion', 'replacement', 'inversion', 'crossing_edges', 'back_edges', 'forward_edges', 'total']
+        # Creating a new dict with the desired order
+        summary_dict = {key: summary_dict[key] for key in key_order}
         return summary_dict
 
     def is_inversion(self, edge):
