@@ -46,7 +46,7 @@ def extract_bubble_ids(node_string: str) -> Tuple:
     node_ids = re.findall(r'[><]\d+', node_string)
 
     # Convert the list of strings to a tuple
-    node_tuple = tuple(map(lambda x: _node_convert(x), node_ids))
+    node_tuple = tuple(map(lambda x: x[1:], node_ids))
 
     assert len(node_tuple) == 2, f"Invalid bubble ID: {node_string}"
 
@@ -82,6 +82,30 @@ def extract_node_bubble_partition_from_vcf(vcf_path: str) -> Tuple[Dict, Dict]:
             nodes_list = extract_nodes_in_bubble(AT)
 
             bubbles[bubble_id_tuple] = data_dict
+
+            for node in nodes_list:
+                node_partition[node].add(bubble_id_tuple)
+
+    return bubbles, node_partition
+
+def extract_node_bubble_partition_from_vg(table_path: str) -> Tuple[Dict, Dict]:
+    bubbles = dict()
+    node_partition = defaultdict(set)
+    with open(table_path, 'r') as table_file:
+        for line in table_file:
+            if line.startswith('#') or line.startswith('##'):
+                continue
+
+            parts = line.strip().split('\t')
+            ID = parts[0]
+            nodes = parts[3]
+            bubble_id_tuple = extract_bubble_ids(ID)
+            nodes_list = (list(map(lambda x: x + '_+', bubble_id_tuple)) +
+                          list(map(lambda x: x + '_-', bubble_id_tuple)) +
+                          list(map(lambda x: x + '_+', nodes.split(','))) +
+                          list(map(lambda x: x + '_-', nodes.split(','))))
+
+            bubbles[bubble_id_tuple] = parts[1:]
 
             for node in nodes_list:
                 node_partition[node].add(bubble_id_tuple)
@@ -130,7 +154,7 @@ def get_variants_for_bubbles(G: PangenomeGraph,
     bubble_within_variants = defaultdict(set)
     bubble_crossing_variants = defaultdict(set)
 
-    for edge in G.variant_edges:
+    for edge in sorted(list(G.variant_edges)):
         u, v = edge
 
         if inversion_only:
@@ -200,7 +224,7 @@ def variant_summary_result_by_region(G: PangenomeGraph,
         assert chr_name, "Chromosome name is required for BED file"
         interval_tree = get_interval_tree_from_bed(bed_file, chr_name)
         egde_in_region = []
-        for edge in G.variant_edges:
+        for edge in sorted(list(G.variant_edges)):
             u, v = edge
             pos_u = G.nodes[u]['position']
             pos_v = G.nodes[v]['position']
@@ -219,8 +243,10 @@ def variant_summary_result_by_region(G: PangenomeGraph,
     return var_dict
 
 def write_bubble_summary_result(gfa_path: str,
-                                vcf_path: str,
+                                snarl_path: str,
+                                vcf_path: Optional[str] = None,
                                 save_pangenome_graph: Optional[bool] = False,
+                                save_dfs_tree: Optional[bool] = False,
                                 G_pkl_path: Optional[str] = None,
                                 reference_path_index: Optional[int] = None,
                                 output_dir: Optional[str] = './',
@@ -231,8 +257,12 @@ def write_bubble_summary_result(gfa_path: str,
     if not os.path.isfile(gfa_path):
         raise FileNotFoundError(f"GFA file not found: {gfa_path}")
 
-    if not os.path.isfile(vcf_path):
-        raise FileNotFoundError(f"VCF file not found: {vcf_path}")
+    if not os.path.isfile(snarl_path):
+        raise FileNotFoundError(f"Snarl content file not found: {snarl_path}")
+
+    if vcf_path:
+        if not os.path.isfile(vcf_path):
+            raise FileNotFoundError(f"VCF file not found: {vcf_path}")
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -259,11 +289,12 @@ def write_bubble_summary_result(gfa_path: str,
 
     if method == "AT":
         if node_partition is None or bubble_dict is None:
-            bubble_dict, node_partition = extract_node_bubble_partition_from_vcf(vcf_path)
+            bubble_dict, node_partition = extract_node_bubble_partition_from_vg(snarl_path)
         method_suffix = "_AT"
     elif method == "Position":
+        raise NotImplementedError("Position method is not implemented yet.")
         if node_partition is None or bubble_dict is None:
-            bubble_dict = find_bubbles_from_vcf(G, vcf_path)
+            bubble_dict = find_bubbles_from_vcf(G, snarl_path)
             node_partition = find_node_partition(G, bubble_dict)
         method_suffix = "_Position"
     else:
@@ -271,10 +302,11 @@ def write_bubble_summary_result(gfa_path: str,
 
 
     bubble_var_count_path = f"bubble_variant_counts_{chr_name}{method_suffix}.tsv"
-    dfs_tree_path = f"dfs_tree_{chr_name}.gfa"
 
-    print("Writing DFS tree to GFA...")
-    write_dfs_tree_to_gfa(G, os.path.join(output_dir, dfs_tree_path))
+    if save_dfs_tree:
+        dfs_tree_path = f"dfs_tree_{chr_name}.gfa"
+        print("Writing DFS tree to GFA...")
+        write_dfs_tree_to_gfa(G, os.path.join(output_dir, dfs_tree_path))
 
     print("Writing bubble summary to CSV...")
     var_dict_within, var_dict_crossing = get_variants_for_bubbles(G, node_partition)
@@ -290,8 +322,9 @@ def write_bubble_summary_result(gfa_path: str,
     length_cross = [len(var_dict_crossing.get(key, {})) for key in bubble_list]
     length_total = [length_with[i] + length_cross[i] for i in range(len(bubble_list))]
 
-    if method == "AT":
-        AC_sum = [sum(ast.literal_eval(f"[{bubble_dict[x]['AC']}]")) for x in bubble_list]
+    if vcf_path:
+        bubble_dict_vcf, _ = extract_node_bubble_partition_from_vg(vcf_path)
+        AC_sum = [sum(ast.literal_eval(f"[{bubble_dict_vcf[x]['AC']}]")) for x in bubble_list]
     else:
         AC_sum = ['.'] * len(bubble_list)
 
