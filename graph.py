@@ -29,6 +29,12 @@ class PangenomeGraph(nx.DiGraph):
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
     @property
+    def sorted_positive_variant_edge(self) -> list[str]:
+        edges = [edge if self.nodes[edge[0]]['direction'] == 1 or self.is_inversion(edge) else _edge_complement(edge)
+                 for edge in list(self.variant_edges)]
+        return sorted(edges)
+
+    @property
     def sorted_biedge(self) -> list[str]:
         edges = [edge_with_data for edge_with_data in self.edges(data=True)]
         return sorted(edges, key=lambda edge: edge[2]['index'])
@@ -578,6 +584,8 @@ class PangenomeGraph(nx.DiGraph):
     def representative_edge(self, edge: tuple):
         return edge if self.edges[edge]['is_representative'] else _edge_complement(edge)
 
+    def positive_variant_edge(self, edge: tuple):
+        return edge if self.nodes[edge[0]]['direction'] == 1 or self.is_inversion(edge) else _edge_complement(edge)
     def compute_edge_weights(self, walks):
         for walk in walks:
 
