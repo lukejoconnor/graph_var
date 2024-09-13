@@ -191,7 +191,7 @@ class PangenomeGraph(nx.DiGraph):
             return False
         if self.is_in_tree(edge):
             return False
-        positive_edge = edge if self.nodes[edge[0]].direction == 1 else _edge_complement(edge)
+        positive_edge = edge if self.nodes[edge[0]]['direction'] == 1 else _edge_complement(edge)
         branch_point = self.edges[positive_edge]['branch_point']
         return branch_point == positive_edge[1]
 
@@ -200,7 +200,7 @@ class PangenomeGraph(nx.DiGraph):
             return False
         if self.is_in_tree(edge):
             return False
-        positive_edge = edge if self.nodes[edge[0]].direction == 1 else _edge_complement(edge)
+        positive_edge = edge if self.nodes[edge[0]]['direction'] == 1 else _edge_complement(edge)
         branch_point = self.edges[positive_edge]['branch_point']
         return branch_point == positive_edge[0]
 
