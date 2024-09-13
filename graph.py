@@ -187,22 +187,22 @@ class PangenomeGraph(nx.DiGraph):
         return self.representative_edge(edge) in self.reference_tree
 
     def is_back_edge(self, edge):
-        edge = self.representative_edge(edge)
         if self.is_inversion(edge):
             return False
         if self.is_in_tree(edge):
             return False
-        branch_point = self.edges[edge]['branch_point']
-        return branch_point == edge[1]
+        positive_edge = edge if self.nodes[edge[0]].direction == 1 else _edge_complement(edge)
+        branch_point = self.edges[positive_edge]['branch_point']
+        return branch_point == positive_edge[1]
 
     def is_forward_edge(self, edge):
-        edge = self.representative_edge(edge)
         if self.is_inversion(edge):
             return False
         if self.is_in_tree(edge):
             return False
-        branch_point = self.edges[edge]['branch_point']
-        return branch_point == edge[0]
+        positive_edge = edge if self.nodes[edge[0]].direction == 1 else _edge_complement(edge)
+        branch_point = self.edges[positive_edge]['branch_point']
+        return branch_point == positive_edge[0]
 
     def is_crossing_edge(self, edge):
         if self.is_inversion(edge):
