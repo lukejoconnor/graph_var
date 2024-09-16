@@ -598,11 +598,10 @@ class PangenomeGraph(nx.DiGraph):
         Computes the branch point, i.e. the lowest common ancestor in the reference tree, of each variant edge.
         """
 
-        non_inversion_variants = [(u, v) for u, v in self.variant_edges
-                                  if self.nodes[u]['direction'] == self.nodes[v]['direction']]
+        def positive_node(node):
+            return node if self.nodes[node]['direction'] == 1 else _node_complement(node)
 
-        positive_direction_variants = [e if self.nodes[e[0]]['direction'] == 1 else _edge_complement(e)
-                                       for e in non_inversion_variants]
+        positive_direction_variants = [(positive_node(u), positive_node(v)) for u,v in self.variant_edges]
 
         # For each variant edge (u,v), yield the lowest common ancestor of u and v in the tree
         branch_point_tuples = nx.tree_all_pairs_lowest_common_ancestor(
@@ -610,8 +609,10 @@ class PangenomeGraph(nx.DiGraph):
             root=self.termini[0]+'_+',
             pairs=positive_direction_variants
         )
+        branch_points = dict(branch_point_tuples)
 
-        for edge, branch_point in branch_point_tuples:
+        for edge in self.variant_edges:
+            branch_point = branch_points[positive_node(edge[0]), positive_node(edge[1])]
             self.edges[edge]['branch_point'] = branch_point
             self.edges[_edge_complement(edge)]['branch_point'] = branch_point
 
@@ -632,7 +633,8 @@ class PangenomeGraph(nx.DiGraph):
     # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
     def ref_alt_alleles(self, variant_edge: tuple,
                         walkup_limit: int = 50,
-                        return_search_bool=False):
+                        return_search_bool: bool=False,
+                        ):
         """
         Computes the reference allele and alternative allele of the branch point for each variant edge.
         :param variant_edges: list of tuples (u,v).
@@ -644,13 +646,13 @@ class PangenomeGraph(nx.DiGraph):
             raise ValueError("Ref and alt alleles are only defined for variant edges")
 
         u, v = variant_edge
-        if self.is_inversion(variant_edge):
-            return '', '', '', ''
-
         branch_point = self.edges[u, v]['branch_point']
         if self.nodes[u]['direction'] == -1:
              u, v = _edge_complement((u, v))
-        #     branch_point = _node_complement(branch_point)
+
+        # inversion edge
+        if self.nodes[v]['direction'] == -1:
+            v = _node_complement(v)
 
         ref_path, ref_search_limit = self.walk_up_tree(branch_point, v, walkup_limit)
         alt_path, alt_search_limit = self.walk_up_tree(branch_point, u, walkup_limit)
@@ -658,15 +660,11 @@ class PangenomeGraph(nx.DiGraph):
         # alt allele sometimes includes and sometime excludes the branch point and u, depending on edge type
         is_back_edge = branch_point == v
         is_forward_edge = branch_point == u
-        is_crossing_edge = False
-
         if is_back_edge:
-            is_forward_edge = False
             alt_path = alt_path[::-1]
         elif is_forward_edge:
             alt_path = []
         else:
-            is_crossing_edge = True
             alt_path = alt_path[-2::-1]
 
         # ref path always excludes both the branch point and v
@@ -864,7 +862,7 @@ class PangenomeGraph(nx.DiGraph):
             successors = [v for _, v, is_back_edge in self.out_edges(u, data='is_back_edge') if not is_back_edge]
             if successors:
                 successors_minimum_position = np.min([self.nodes[v]['forward_position'] for v in successors])
-            else: # TODO think about this
+            else:
                 successors_minimum_position = inf
 
             self.nodes[u]['forward_position'] = np.minimum(self.nodes[u]['forward_position'],
@@ -887,26 +885,39 @@ class PangenomeGraph(nx.DiGraph):
 
         return result
 
-    def classify_triallelic_bubble(self, start: str, end: str, variants: list) -> str:
+    def classify_triallelic_bubble(self, endpoint_binodes: list, variants: list) -> str:
         """
-        Classifies a triallelic superbubble from start to end node as either:
-        overlapping: one pair of the three alleles share one subsequence
+        Classifies a top-level triallelic superbubble containing 2 variants as either:
+        overlapping: one pair of the three alleles shares one subsequence
         interlocking: two different pairs of alleles share one subsequence each
         nested: one pair of alleles shares two noncontiguous subsequences
         properly_triallelic: no pair of alleles shares a subsequence
+        # TODO unsure if this handles inversions properly
 
-        :param start: starting node of the superbubble
-        :param end: ending node
+        :param endpoint_binodes: starting and ending binodes of the superbubble
         :param variants: list of variants within the superbubble; there must be two of them
         :return: the class of superbubble
         """
         if len(variants) != 2:
             raise ValueError
-        if not self.has_node(start) or not self.has_node(end):
+
+        endpoint_nodes = [node + '_+' for node in endpoint_binodes]
+        endpoint_nodes += [node + '_-' for node in endpoint_binodes]
+        if not all([self.has_node(node) for node in endpoint_nodes]):
             raise ValueError
 
-        start_degree = self.out_degree(start)
-        end_degree = self.in_degree(end)
+        # Detect which node of each binode demarcates the superbubble
+        variant_branch_points = [self.edges[e]['branch_point'] for e in variants]
+        start_nodes = [node for node in endpoint_nodes if node in variant_branch_points]
+        variant_end_points = [v for _, v in variants]
+        end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
+        assert len(start_nodes) == 1 and len(end_nodes) == 1, \
+            f"Found {len(start_nodes)} possible start nodes and {len(end_nodes)} possible end nodes"
+
+        start_node = start_nodes[0]
+        end_node = end_nodes[0]
+        start_degree = self.out_degree(start_node)
+        end_degree = self.in_degree(end_node)
         assert start_degree <= 3 and end_degree <= 3, \
             f"Starting and ending nodes of the bubble had degree {start_degree} and {end_degree}"
 
@@ -916,14 +927,15 @@ class PangenomeGraph(nx.DiGraph):
         if start_degree == 3 or end_degree == 3:
             return 'overlapping'
 
-        for e in variants:
-            branch_point = self.edges[e]['branch_point']
-            end_point = e[1]
-            if branch_point == start and end_point == end:
-                return 'nested'
-            if branch_point == end and end_point == start:
-                return 'nested'  # repeat with a nested variant
+        # e.g., [(0,1), (0,2), (1,2), (1,3), (2,3)] with variant edges [(1,2), (1,3)]
+        if all([node == start_node for node in variant_branch_points]):
+            return 'interlocking'
 
+        for branch_point, end_point in zip(variant_branch_points, variant_end_points):
+            if branch_point == start_node and end_point == end_node:
+                return 'nested'
+
+        # e.g., [(0,1), (0,2), (1,2), (1,3), (2,3)] with variant edges [(0,2), (1,3)]
         return 'interlocking'
 
 
