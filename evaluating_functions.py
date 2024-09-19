@@ -87,12 +87,15 @@ def write_nodes_to_txt(nodes: List[str], filename: str):
             txt_file.write(node.encode())
             txt_file.write('\n'.encode())
 
-def extract_bubble_ids(node_string: str) -> Tuple:
+def extract_bubble_ids(node_string: str, symbol=False) -> Tuple:
     # Split the string and keep '>' and '<' symbols
     node_ids = re.findall(r'[><]\d+', node_string)
 
     # Convert the list of strings to a tuple
-    node_tuple = tuple(map(lambda x: _node_convert(x), node_ids))
+    if symbol:
+        node_tuple = tuple(map(lambda x: _node_convert(x), node_ids))
+    else:
+        node_tuple = tuple(map(lambda x: x[1:], node_ids))
 
     assert len(node_tuple) == 2, f"Invalid bubble ID: {node_string}"
 
