@@ -1,7 +1,8 @@
 from math import inf
 import networkx as nx
 import numpy as np
-from utils import read_gfa, _node_complement, _edge_complement, _sequence_reversed_complement, _node_recover
+from utils import read_gfa, _node_complement, _edge_complement, _sequence_reversed_complement, _node_recover, \
+    _walk_complement
 from search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
@@ -59,6 +60,9 @@ class PangenomeGraph(nx.DiGraph):
         if not self.has_edge(edge):
             raise ValueError("Graph does not have edge {edge}")
         return self.nodes[edge[1]]['on_reference_path']
+
+    def parent_in_tree(self, node: str) -> str:
+        return next(self.reference_tree.predecessors(node))
 
     @classmethod
     def from_gfa(cls,
@@ -441,7 +445,7 @@ class PangenomeGraph(nx.DiGraph):
                 if self.reference_tree.in_degree[node] == 0:
                     parent_position_in_file = -1
                 else:
-                    parent = next(self.reference_tree.predecessors(node))
+                    parent = self.parent_in_tree(node)
                     parent_position_in_file = line_in_file[parent] if parent else -1
                 node_sequence = self.nodes[node]['sequence']
                 file.write(f"{node},{parent_position_in_file},{node_sequence}\n")
@@ -598,10 +602,7 @@ class PangenomeGraph(nx.DiGraph):
         Computes the branch point, i.e. the lowest common ancestor in the reference tree, of each variant edge.
         """
 
-        def positive_node(node):
-            return node if self.nodes[node]['direction'] == 1 else _node_complement(node)
-
-        positive_direction_variants = [(positive_node(u), positive_node(v)) for u,v in self.variant_edges]
+        positive_direction_variants = [(self.positive_node(u), self.positive_node(v)) for u,v in self.variant_edges]
 
         # For each variant edge (u,v), yield the lowest common ancestor of u and v in the tree
         branch_point_tuples = nx.tree_all_pairs_lowest_common_ancestor(
@@ -612,7 +613,11 @@ class PangenomeGraph(nx.DiGraph):
         branch_points = dict(branch_point_tuples)
 
         for edge in self.variant_edges:
-            branch_point = branch_points[positive_node(edge[0]), positive_node(edge[1])]
+            u, v = edge
+            branch_point = branch_points[self.positive_node(u), self.positive_node(v)]
+            if branch_point == v or branch_point == _node_complement(u):
+                assert self.reference_tree.in_degree(branch_point) == 1
+                branch_point = self.parent_in_tree(branch_point)
             self.edges[edge]['branch_point'] = branch_point
             self.edges[_edge_complement(edge)]['branch_point'] = branch_point
 
@@ -624,13 +629,58 @@ class PangenomeGraph(nx.DiGraph):
         while u != ancestor and search_count < search_limit:
             search_count += 1
             result.append(u)
-            u = next(self.reference_tree.predecessors(u))
+            u = self.parent_in_tree(u)
         result.append(ancestor)
         if (search_count + 1) == search_limit:
             reach_limit = True
         return result, reach_limit
 
-    # TODO think about strandedness and desired behavior; currently this maps [-, -] variant edges to [+, +] silently
+    def positive_node(self, node: str) -> str:
+        return node if self.nodes[node]['direction'] == 1 else _node_complement(node)
+
+    def direction(self, node: str) -> int:
+        return self.nodes[node]['direction']
+
+    def walk_sequence(self, walk: list[str]) -> str:
+        seq = ''
+        for node in walk:
+            seq += self.nodes[node]['sequence']
+        return seq
+
+    def walk_with_variants(self, first: str, last: str, variant_edges: list) -> list:
+        """
+        Computes a walk from first node to last node, including all of the variant edges in the list.
+        The walk proceeds from the 'end' of the first node to the 'start' of the last node, where the sequence associated
+        with each node lies between its 'start' and 'end'. Thus, the first node is excluded from the walk, and the 
+        last node is usually excluded. However, the last node is included if the walk goes from + to -, because the
+        'start' of the - node is the 'end' of its complementary + node.
+        
+        :param first: first node of the walk, either + or -
+        :param last: last node
+        :param variant_edges: variant edges in the order they are encountered, with the correct orientations
+        :return: the nodes on the walk in order, excluding first and last
+        """
+        walk_direction = self.direction(first)
+        source_nodes = [first] + [v for _, v in variant_edges]
+        sink_nodes = [u for u, _ in variant_edges] + [last]
+        result = []
+        for source, sink in zip(source_nodes, sink_nodes):
+            include_source = self.direction(source) == walk_direction
+            source = source if self.direction(source) == walk_direction else _node_complement(source)
+            sink = sink if self.direction(source) == walk_direction else _node_complement(source)
+            pair = (source, self.positive_node(sink)) if walk_direction == 1 else \
+                (self.positive_node(sink), self.positive_node(source))
+            segment, _ = self.walk_up_tree(*pair, search_limit=inf)
+            if not include_source:
+                segment = segment[:-1] if walk_direction == 1 else segment[1:]
+            segment = segment[::-1]
+            result += segment if walk_direction == 1 else _walk_complement(segment)
+
+        # exclude first and sometimes last nodes
+        if self.nodes[last]['direction'] == -1 and walk_direction == 1:
+            return result[1:]
+        return result[1:-1]
+
     def ref_alt_alleles(self, variant_edge: tuple,
                         walkup_limit: int = 50,
                         return_search_bool: bool=False,
@@ -641,48 +691,25 @@ class PangenomeGraph(nx.DiGraph):
         :return: dict mapping variant edges to tuples (ref, alt)
         """
 
-        variant_edge = self.representative_edge(variant_edge)
         if self.is_in_tree(variant_edge):
             raise ValueError("Ref and alt alleles are only defined for variant edges")
 
         u, v = variant_edge
         branch_point = self.edges[u, v]['branch_point']
-        if self.nodes[u]['direction'] == -1:
-             u, v = _edge_complement((u, v))
+        first, last = (branch_point, v) if self.nodes[u]['direction'] == 1 else (u, branch_point)
 
-        # inversion edge
-        if self.nodes[v]['direction'] == -1:
-            v = _node_complement(v)
+        ref_path = self.walk_with_variants(first, last, [])
+        alt_path = self.walk_with_variants(first, last, [variant_edge])
 
-        ref_path, ref_search_limit = self.walk_up_tree(branch_point, v, walkup_limit)
-        alt_path, alt_search_limit = self.walk_up_tree(branch_point, u, walkup_limit)
-
-        # alt allele sometimes includes and sometime excludes the branch point and u, depending on edge type
-        is_back_edge = branch_point == v
-        is_forward_edge = branch_point == u
-        if is_back_edge:
-            alt_path = alt_path[::-1]
-        elif is_forward_edge:
-            alt_path = []
-        else:
-            alt_path = alt_path[-2::-1]
-
-        # ref path always excludes both the branch point and v
-        ref_path = ref_path[-2:0:-1]
-
-        alt_allele = ''
+        ref_search_limit, alt_search_limit = False, False
         if alt_search_limit:
             alt_allele = '.'
         else:
-            for node in alt_path:
-                alt_allele += self.nodes[node]['sequence']
-
-        ref_allele = ''
+            alt_allele = self.walk_sequence(alt_path)
         if ref_search_limit:
             ref_allele = '.'
         else:
-            for node in ref_path:
-                ref_allele += self.nodes[node]['sequence']
+            ref_allele = self.walk_sequence(ref_path)
 
         branch_sequence = self.nodes[branch_point]['sequence']
         if not branch_sequence:
@@ -825,7 +852,7 @@ class PangenomeGraph(nx.DiGraph):
                     raise ValueError("The input genotype does not correspond to any valid walk")
 
                 previous_node = current_node
-                current_node = next(self.reference_tree.predecessors(current_node))
+                current_node = self.parent_in_tree(current_node)
                 edge_representative = self.representative_edge((current_node, previous_node))
                 if edge_representative in edge_visits:
                     edge_visits[edge_representative] += 1
@@ -853,7 +880,7 @@ class PangenomeGraph(nx.DiGraph):
 
         order = list(nx.topological_sort(self.reference_tree))
         for u in order[1:]: # skip the root
-            predecessor = next(self.reference_tree.predecessors(u))
+            predecessor = self.parent_in_tree(u)
             self.nodes[u]['position'] = np.maximum(self.nodes[u]['position'],
                                                self.nodes[predecessor]['position'])
             self.nodes[_node_complement(u)]['position'] = self.nodes[u]['position']
