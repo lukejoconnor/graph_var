@@ -11,6 +11,7 @@ from utils import _node_convert, load_graph_from_pkl, save_graph_to_pkl
 import pandas as pd
 import ast
 
+# Utility functions ----------------------------------------------------------------------------------------------------
 def get_node_id_symbol(node: str) -> Tuple[str, str]:
     node_split = node.split('_')
     if len(node_split) == 2:
@@ -22,6 +23,51 @@ def get_node_id_symbol(node: str) -> Tuple[str, str]:
         raise ValueError(f"Invalid node ID: {node}")
 
     return node_id, symbol
+
+def get_variants_for_bubbles(G: PangenomeGraph,
+                             node_partition: Dict[str, Set[Tuple[str, str]]],
+                             inversion_only: bool = False,
+                             ) -> Tuple[Dict, Dict]:
+    bubble_within_variants = defaultdict(set)
+    bubble_crossing_variants = defaultdict(set)
+
+    for edge in sorted(list(G.variant_edges)):
+        u, v = edge
+
+        if inversion_only:
+            if not G.is_inversion(edge):
+                continue
+
+        bubbles_u = node_partition[u]
+        bubbles_v = node_partition[v]
+
+        bubble_set_intersection = bubbles_u.intersection(bubbles_v)
+        bubble_set_complementary_u = bubbles_u - bubble_set_intersection
+        bubble_set_complementary_v = bubbles_v - bubble_set_intersection
+
+        if len(bubble_set_intersection) > 0:
+            for bubble in bubble_set_intersection:
+                bubble_within_variants[bubble].add(edge)
+        else:
+            for bubble in bubble_set_complementary_u:
+                bubble_crossing_variants[bubble].add(edge)
+
+            for bubble in bubble_set_complementary_v:
+                bubble_crossing_variants[bubble].add(edge)
+
+    return bubble_within_variants, bubble_crossing_variants
+
+def get_interval_tree_from_bed(bed_file: str, chr_name: str) -> IntervalTree:
+    interval_tree = IntervalTree()
+    with open(bed_file, 'r') as bed:
+        for line in bed:
+            parts = line.strip().split('\t')
+            if parts[0] != chr_name:
+                continue
+            start = int(parts[1])
+            end = int(parts[2])
+            interval_tree.add(Interval(start, end))
+    return interval_tree
 
 def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
     with open(filename, 'wb') as gfa_file:
@@ -41,12 +87,15 @@ def write_nodes_to_txt(nodes: List[str], filename: str):
             txt_file.write(node.encode())
             txt_file.write('\n'.encode())
 
-def extract_bubble_ids(node_string: str) -> Tuple:
+def extract_bubble_ids(node_string: str, symbol=False) -> Tuple:
     # Split the string and keep '>' and '<' symbols
     node_ids = re.findall(r'[><]\d+', node_string)
 
     # Convert the list of strings to a tuple
-    node_tuple = tuple(map(lambda x: x[1:], node_ids))
+    if symbol:
+        node_tuple = tuple(map(lambda x: _node_convert(x), node_ids))
+    else:
+        node_tuple = tuple(map(lambda x: x[1:], node_ids))
 
     assert len(node_tuple) == 2, f"Invalid bubble ID: {node_string}"
 
@@ -66,17 +115,19 @@ def extract_node_bubble_partition_from_vcf(vcf_path: str) -> Tuple[Dict, Dict]:
     node_partition = defaultdict(set)
     with open(vcf_path, 'r') as vcf_file:
         for line in vcf_file:
-            if line.startswith('##'):
-                continue
-
-            if line.startswith('#'):
+            if line.startswith('#') or line.startswith('##'):
                 continue
 
             parts = line.strip().split('\t')
+            POS = parts[1]
             ID = parts[2]
+            ref, alt = parts[3], parts[4]
             INFO = parts[7]
             INFO_list = INFO.split(';')
             data_dict = {x.split('=')[0]: x.split('=')[1] for x in INFO_list}
+            data_dict['POS'] = POS
+            data_dict['REF'] = ref
+            data_dict['ALT'] = alt
             AT = data_dict['AT']
             bubble_id_tuple = extract_bubble_ids(ID)
             nodes_list = extract_nodes_in_bubble(AT)
@@ -88,10 +139,10 @@ def extract_node_bubble_partition_from_vcf(vcf_path: str) -> Tuple[Dict, Dict]:
 
     return bubbles, node_partition
 
-def extract_node_bubble_partition_from_vg(table_path: str) -> Tuple[Dict, Dict]:
+def extract_node_bubble_partition_from_snarl(snarl_path: str) -> Tuple[Dict, Dict]:
     bubbles = dict()
     node_partition = defaultdict(set)
-    with open(table_path, 'r') as table_file:
+    with open(snarl_path, 'r') as table_file:
         for line in table_file:
             if line.startswith('#') or line.startswith('##'):
                 continue
@@ -105,7 +156,7 @@ def extract_node_bubble_partition_from_vg(table_path: str) -> Tuple[Dict, Dict]:
                           list(map(lambda x: x + '_+', nodes.split(','))) +
                           list(map(lambda x: x + '_-', nodes.split(','))))
 
-            bubbles[bubble_id_tuple] = parts[1:]
+            bubbles[bubble_id_tuple] = {'Level': parts[1], 'Parent': parts[2], 'Content': parts[3]}
 
             for node in nodes_list:
                 node_partition[node].add(bubble_id_tuple)
@@ -146,39 +197,19 @@ def find_node_partition(G: PangenomeGraph, bubble_dict: Dict) -> Dict:
 
     return node_partition
 
+# Summary functions ----------------------------------------------------------------------------------------------------
+def combine_info_vcf_snarl(vcf_path: str, snarl_path: str, level: int = None, pos_range: Tuple[int, int] = None) -> Dict:
+    bubble_dict, _ = extract_node_bubble_partition_from_vcf(vcf_path)
+    snarl_dict, _ = extract_node_bubble_partition_from_snarl(snarl_path)
+    combine_dict = {bubble: bubble_dict.get(bubble, {}) | snarl_dict.get(bubble, {})
+                    for bubble in sorted(list(set(bubble_dict.keys()).union(set(snarl_dict.keys()))))}
 
-def get_variants_for_bubbles(G: PangenomeGraph,
-                             node_partition: Dict[str, Set[Tuple[str, str]]],
-                             inversion_only: bool = False,
-                             ) -> Tuple[Dict, Dict]:
-    bubble_within_variants = defaultdict(set)
-    bubble_crossing_variants = defaultdict(set)
+    if level is not None:
+        combine_dict = {key: value for key, value in combine_dict.items() if int(value.get('Level', -1)) == level}
+    if pos_range is not None:
+        combine_dict = {key: value for key, value in combine_dict.items() if pos_range[0] <= int(value.get('POS', -1)) <= pos_range[1]}
 
-    for edge in sorted(list(G.variant_edges)):
-        u, v = edge
-
-        if inversion_only:
-            if not G.is_inversion(edge):
-                continue
-
-        bubbles_u = node_partition[u]
-        bubbles_v = node_partition[v]
-
-        bubble_set_intersection = bubbles_u.intersection(bubbles_v)
-        bubble_set_complementary_u = bubbles_u - bubble_set_intersection
-        bubble_set_complementary_v = bubbles_v - bubble_set_intersection
-
-        if len(bubble_set_intersection) > 0:
-            for bubble in bubble_set_intersection:
-                bubble_within_variants[bubble].add(edge)
-        else:
-            for bubble in bubble_set_complementary_u:
-                bubble_crossing_variants[bubble].add(edge)
-
-            for bubble in bubble_set_complementary_v:
-                bubble_crossing_variants[bubble].add(edge)
-
-    return bubble_within_variants, bubble_crossing_variants
+    return combine_dict
 
 def variant_edges_summary(G: PangenomeGraph, var_list: list) -> Dict:
     summary_dict = dict()
@@ -202,17 +233,12 @@ def variant_edges_summary(G: PangenomeGraph, var_list: list) -> Dict:
     summary_dict['total'] = len(var_list)
     return summary_dict
 
-def get_interval_tree_from_bed(bed_file: str, chr_name: str) -> IntervalTree:
-    interval_tree = IntervalTree()
-    with open(bed_file, 'r') as bed:
-        for line in bed:
-            parts = line.strip().split('\t')
-            if parts[0] != chr_name:
-                continue
-            start = int(parts[1])
-            end = int(parts[2])
-            interval_tree.add(Interval(start, end))
-    return interval_tree
+def snarl_level_summary(bubble_dict: Dict) -> Dict:
+    level_count = dict()
+    for _, bubble_info in bubble_dict.items():
+        level_count[int(bubble_info.get('Level', -1))] = level_count.get(int(bubble_info.get('Level', -1)), 0) + 1
+
+    return level_count
 
 def variant_summary_result_by_region(G: PangenomeGraph,
                                  bed_file: str = None,
@@ -289,14 +315,14 @@ def write_bubble_summary_result(gfa_path: str,
 
     if method == "AT":
         if node_partition is None or bubble_dict is None:
-            bubble_dict, node_partition = extract_node_bubble_partition_from_vg(snarl_path)
+            bubble_dict, node_partition = extract_node_bubble_partition_from_snarl(snarl_path)
         method_suffix = "_AT"
     elif method == "Position":
         raise NotImplementedError("Position method is not implemented yet.")
-        if node_partition is None or bubble_dict is None:
-            bubble_dict = find_bubbles_from_vcf(G, snarl_path)
-            node_partition = find_node_partition(G, bubble_dict)
-        method_suffix = "_Position"
+        # if node_partition is None or bubble_dict is None:
+        #     bubble_dict = find_bubbles_from_vcf(G, snarl_path)
+        #     node_partition = find_node_partition(G, bubble_dict)
+        # method_suffix = "_Position"
     else:
         raise ValueError(f"Invalid method: {method}")
 
@@ -323,7 +349,7 @@ def write_bubble_summary_result(gfa_path: str,
     length_total = [length_with[i] + length_cross[i] for i in range(len(bubble_list))]
 
     if vcf_path:
-        bubble_dict_vcf, _ = extract_node_bubble_partition_from_vg(vcf_path)
+        bubble_dict_vcf, _ = extract_node_bubble_partition_from_vcf(vcf_path)
         AC_sum = [sum(ast.literal_eval(f"[{bubble_dict_vcf[x]['AC']}]")) for x in bubble_list]
     else:
         AC_sum = ['.'] * len(bubble_list)

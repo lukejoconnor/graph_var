@@ -946,7 +946,7 @@ class PangenomeGraph(nx.DiGraph):
         start_degree = self.out_degree(start_node)
         end_degree = self.in_degree(end_node)
         assert start_degree <= 3 and end_degree <= 3, \
-            f"Starting and ending nodes of the bubble had degree {start_degree} and {end_degree}"
+            f"Starting and ending nodes ({start_node} and {end_node}) of the bubble had degree {start_degree} and {end_degree}"
 
         if start_degree == 3 and end_degree == 3:
             return 'properly_triallelic'
