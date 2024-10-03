@@ -15,6 +15,9 @@ def _node_complement(s: str):
 def _edge_complement(e: tuple[str, str]):
     return _node_complement(e[1]), _node_complement(e[0])
 
+def _walk_complement(w: list[str]) -> list[str]:
+    return [_node_complement(v) for v in w[::-1]]
+
 def _flip(s):
     if s == '+':
         return '-'
