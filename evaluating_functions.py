@@ -198,7 +198,7 @@ def find_node_partition(G: PangenomeGraph, bubble_dict: Dict) -> Dict:
     return node_partition
 
 # Summary functions ----------------------------------------------------------------------------------------------------
-def combine_info_vcf_snarl(vcf_path: str, snarl_path: str, level: int = None, pos_range: Tuple[int, int] = None) -> Dict:
+def combined_info_vcf_snarl(vcf_path: str, snarl_path: str, level: int = None, pos_range: Tuple[int, int] = None) -> Dict:
     bubble_dict, _ = extract_node_bubble_partition_from_vcf(vcf_path)
     snarl_dict, _ = extract_node_bubble_partition_from_snarl(snarl_path)
     combine_dict = {bubble: bubble_dict.get(bubble, {}) | snarl_dict.get(bubble, {})
