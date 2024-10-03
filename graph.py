@@ -943,8 +943,15 @@ class PangenomeGraph(nx.DiGraph):
 
         start_node = start_nodes[0]
         end_node = end_nodes[0]
-        start_degree = self.out_degree(start_node)
-        end_degree = self.in_degree(end_node)
+        # start_degree = self.out_degree(start_node)
+        # end_degree = self.in_degree(end_node)
+
+        nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}  # Set of nodes to exclude
+
+        # Get in-neighbors and out-neighbors excluding specific nodes
+        start_degree = len(set(self.successors(start_node)) - nodes_to_exclude)
+        end_degree = len(set(self.predecessors(end_node)) - nodes_to_exclude)
+
         assert start_degree <= 3 and end_degree <= 3, \
             f"Starting and ending nodes ({start_node} and {end_node}) of the bubble had degree {start_degree} and {end_degree}"
 
