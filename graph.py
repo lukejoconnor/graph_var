@@ -925,28 +925,40 @@ class PangenomeGraph(nx.DiGraph):
         :param variants: list of variants within the superbubble; there must be two of them
         :return: the class of superbubble
         """
+        nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}  # Set of terminus to exclude
+
         if len(variants) != 2:
-            raise ValueError
+            raise ValueError("Expected exactly 2 variants in the variant list")
+
+        assert not any([self.is_back_edge(edge) for edge in variants]), \
+            "Found a back edge in the variant list"
+
+        if self.is_inversion(variants[0]):
+            assert self.is_inversion(variants[1]), \
+                "Found an inversion and a non-inversion in the variant list"
 
         endpoint_nodes = [node + '_+' for node in endpoint_binodes]
         endpoint_nodes += [node + '_-' for node in endpoint_binodes]
         if not all([self.has_node(node) for node in endpoint_nodes]):
-            raise ValueError
+            raise ValueError("One or more of the endpoint nodes is not in the graph")
 
         # Detect which node of each binode demarcates the superbubble
         variant_branch_points = [self.edges[e]['branch_point'] for e in variants]
+        assert not any([node in nodes_to_exclude for node in variant_branch_points]), \
+            "Found a terminus branch point for variant"
         start_nodes = [node for node in endpoint_nodes if node in variant_branch_points]
-        variant_end_points = [v for _, v in variants]
+        variant_end_points = [v if self.nodes[u]['direction'] == 1 else u for u, v in variants]
         end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
-        assert len(start_nodes) == 1 and len(end_nodes) == 1, \
-            f"Found {len(start_nodes)} possible start nodes and {len(end_nodes)} possible end nodes"
+        assert len(start_nodes) == 1 and len(end_nodes) > 0, \
+            f"Found {len(start_nodes)} possible start nodes, and {len(end_nodes)} possible end nodes"
 
         start_node = start_nodes[0]
         end_node = end_nodes[0]
+        if self.nodes[end_node]['direction'] != self.nodes[start_node]['direction']:
+            end_node = _node_complement(end_node)
+
         # start_degree = self.out_degree(start_node)
         # end_degree = self.in_degree(end_node)
-
-        nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}  # Set of nodes to exclude
 
         # Get in-neighbors and out-neighbors excluding specific nodes
         start_degree = len(set(self.successors(start_node)) - nodes_to_exclude)
