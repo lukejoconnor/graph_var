@@ -241,9 +241,10 @@ def snarl_level_summary(bubble_dict: Dict) -> Dict:
     return level_count
 
 def variant_summary_result_by_region(G: PangenomeGraph,
-                                 bed_file: str = None,
-                                 chr_name: str = None,
-                                 within_only: bool = True) -> Dict:
+                                    bed_file: str = None,
+                                    chr_name: str = None,
+                                    within_only: bool = True,
+                                    exclude_terminus: bool = False) -> Dict:
     if bed_file:
         # def check_edge_in_region(pos_u, pos_v, start, end):
         #     return (start <= pos_u <= end) and (start <= pos_v <= end)
@@ -252,6 +253,12 @@ def variant_summary_result_by_region(G: PangenomeGraph,
         egde_in_region = []
         for edge in sorted(list(G.variant_edges)):
             u, v = edge
+
+            if exclude_terminus:
+                nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
+                if u in nodes_to_exclude or v in nodes_to_exclude:
+                    continue
+
             pos_u = G.nodes[u]['position']
             pos_v = G.nodes[v]['position']
 
@@ -263,7 +270,11 @@ def variant_summary_result_by_region(G: PangenomeGraph,
             if is_in_region:
                 egde_in_region.append(edge)
     else:
-        egde_in_region = list(G.variant_edges)
+        if exclude_terminus:
+            nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
+            egde_in_region = [edge for edge in list(G.variant_edges) if edge[0] not in nodes_to_exclude and edge[1] not in nodes_to_exclude]
+        else:
+            egde_in_region = G.variant_edges
 
     var_dict = variant_edges_summary(G, egde_in_region)
     return var_dict
