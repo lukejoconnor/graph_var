@@ -69,6 +69,29 @@ def get_interval_tree_from_bed(bed_file: str, chr_name: str) -> IntervalTree:
             interval_tree.add(Interval(start, end))
     return interval_tree
 
+def read_vcf_to_dataframe(vcf_path: str) -> pd.DataFrame:
+    records = []
+
+    # Loop through each record in the VCF file
+    with open(vcf_path, 'r') as vcf_file:
+        header = None
+        for line in vcf_file:
+            if line.startswith('##'):
+                continue
+
+            if line.startswith('#'):
+                header = line.strip().split('\t')
+                continue
+
+            parts = line.strip().split('\t')
+            assert len(parts) == len(header), f"Invalid VCF format: {line}"
+            rec_dict = {header[i]: parts[i] for i in range(len(header))}
+            records.append(rec_dict)
+
+    # Convert to DataFrame
+    df = pd.DataFrame(records)
+    return df
+
 def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
     with open(filename, 'wb') as gfa_file:
         for node in G.reference_tree.nodes(data=False):
@@ -80,6 +103,12 @@ def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
             u_id, u_symbol = get_node_id_symbol(u)
             v_id, v_symbol = get_node_id_symbol(v)
             gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
+
+def write_node_sequence_to_csv(G: PangenomeGraph, filename: str):
+    nodes = sorted([node[:-2] for node in list(G.nodes)])
+    sequences = [G.nodes[G.positive_node(node+'_+')]['sequence'] for node in nodes]
+    df = pd.DataFrame({'NodeID': nodes, 'Sequence': sequences})
+    df.to_csv(filename, index=False)
 
 def write_nodes_to_txt(nodes: List[str], filename: str):
     with open(filename, 'wb') as txt_file:
@@ -345,15 +374,15 @@ def write_bubble_summary_result(gfa_path: str,
         print("Writing DFS tree to GFA...")
         write_dfs_tree_to_gfa(G, os.path.join(output_dir, dfs_tree_path))
 
-    print("Writing bubble summary to CSV...")
+    print("Conducting bubble summary...")
     var_dict_within, var_dict_crossing = get_variants_for_bubbles(G, node_partition)
 
     bubble_list = list(bubble_dict.keys())
 
     var_with = [var_dict_within.get(key, {}) for key in bubble_list]
-    var_with_summary = [variant_edges_summary(G, var_dict_within.get(key, [])) for key in bubble_list]
+    #var_with_summary = [variant_edges_summary(G, var_dict_within.get(key, [])) for key in bubble_list]
     var_cross = [var_dict_crossing.get(key, {}) for key in bubble_list]
-    var_cross_summary = [variant_edges_summary(G, var_dict_crossing.get(key, [])) for key in bubble_list]
+    #var_cross_summary = [variant_edges_summary(G, var_dict_crossing.get(key, [])) for key in bubble_list]
 
     length_with = [len(var_dict_within.get(key, {})) for key in bubble_list]
     length_cross = [len(var_dict_crossing.get(key, {})) for key in bubble_list]
@@ -365,6 +394,7 @@ def write_bubble_summary_result(gfa_path: str,
     else:
         AC_sum = ['.'] * len(bubble_list)
 
+    print("Writing bubble summary to CSV...")
     count_summary_df = pd.DataFrame({
          "Bubble_ids": bubble_list,
          "Total_count": length_total,
@@ -372,9 +402,9 @@ def write_bubble_summary_result(gfa_path: str,
          "Within_count": length_with,
          "Crossing_count": length_cross,
          "Within": var_with,
-         "Within_summary": var_with_summary,
+         #"Within_summary": var_with_summary,
          "Crossing": var_cross,
-         "Crossing_summary": var_cross_summary,
+         #"Crossing_summary": var_cross_summary,
          }
     )
 
