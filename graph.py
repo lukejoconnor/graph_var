@@ -168,25 +168,25 @@ class PangenomeGraph(nx.DiGraph):
         for edge in tqdm(sorted(list(self.variant_edges))):
             if self.is_inversion(edge):
                 summary_dict['inversion'] = summary_dict.get('inversion', 0) + 1
-            if self.is_replacement(edge):
-                summary_dict['replacement'] = summary_dict.get('replacement', 0) + 1
-            if self.is_insertion(edge):
-                summary_dict['insertion'] = summary_dict.get('insertion', 0) + 1
-            if self.is_snp(edge):
-                summary_dict['snps'] = summary_dict.get('snps', 0) + 1
-            if self.is_mnp(edge):
-                summary_dict['mnps'] = summary_dict.get('mnps', 0) + 1
             if self.is_crossing_edge(edge):
                 summary_dict['crossing_edges'] = summary_dict.get('crossing_edges', 0) + 1
             if self.is_back_edge(edge):
                 summary_dict['back_edges'] = summary_dict.get('back_edges', 0) + 1
             if self.is_forward_edge(edge):
                 summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
+            # if self.is_replacement(edge):
+            #     summary_dict['replacement'] = summary_dict.get('replacement', 0) + 1
+            # if self.is_insertion(edge):
+            #     summary_dict['insertion'] = summary_dict.get('insertion', 0) + 1
+            # if self.is_snp(edge):
+            #     summary_dict['snps'] = summary_dict.get('snps', 0) + 1
+            # if self.is_mnp(edge):
+            #     summary_dict['mnps'] = summary_dict.get('mnps', 0) + 1
         summary_dict['total'] = len(self.variant_edges)
         # Desired order of keys
-        key_order = ['snps', 'mnps', 'insertion', 'replacement', 'inversion', 'crossing_edges', 'back_edges', 'forward_edges', 'total']
+        key_order = ['inversion', 'crossing_edges', 'back_edges', 'forward_edges', 'total']
         # Creating a new dict with the desired order
-        summary_dict = {key: summary_dict[key] for key in key_order}
+        summary_dict = {key: summary_dict.get(key, 0) for key in key_order}
         return summary_dict
 
     def is_inversion(self, edge):
@@ -331,7 +331,7 @@ class PangenomeGraph(nx.DiGraph):
                   tree_filename: str,
                   chr_name: str,
                   size_threshold: int = 200,
-                  walkup_limit: int = 50) -> None:
+                  walkup_limit: int = inf) -> None:
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
 
         meta_info = f'##fileformat=VCFv4.2\n'
@@ -621,7 +621,7 @@ class PangenomeGraph(nx.DiGraph):
             self.edges[edge]['branch_point'] = branch_point
             self.edges[_edge_complement(edge)]['branch_point'] = branch_point
 
-    def walk_up_tree(self, ancestor, descendant, search_limit=50) -> tuple[list, bool]:
+    def walk_up_tree(self, ancestor, descendant, search_limit: int = inf) -> tuple[list, bool]:
         u = descendant
         result = []
         search_count = 0
@@ -647,7 +647,7 @@ class PangenomeGraph(nx.DiGraph):
             seq += self.nodes[node]['sequence']
         return seq
 
-    def walk_with_variants(self, first: str, last: str, variant_edges: list) -> list:
+    def walk_with_variants(self, first: str, last: str, variant_edges: list, search_limit: int = inf) -> list:
         """
         Computes a walk from first node to last node, including all of the variant edges in the list.
         The walk proceeds from the 'end' of the first node to the 'start' of the last node, where the sequence associated
@@ -670,7 +670,7 @@ class PangenomeGraph(nx.DiGraph):
             sink = sink if self.direction(source) == walk_direction else _node_complement(source)
             pair = (source, self.positive_node(sink)) if walk_direction == 1 else \
                 (self.positive_node(sink), self.positive_node(source))
-            segment, _ = self.walk_up_tree(*pair, search_limit=inf)
+            segment, _ = self.walk_up_tree(*pair, search_limit=search_limit)
             if not include_source:
                 segment = segment[:-1] if walk_direction == 1 else segment[1:]
             segment = segment[::-1]
@@ -682,7 +682,7 @@ class PangenomeGraph(nx.DiGraph):
         return result[1:-1]
 
     def ref_alt_alleles(self, variant_edge: tuple,
-                        walkup_limit: int = 50,
+                        walkup_limit: int = inf,
                         return_search_bool: bool=False,
                         ):
         """
@@ -698,8 +698,8 @@ class PangenomeGraph(nx.DiGraph):
         branch_point = self.edges[u, v]['branch_point']
         first, last = (branch_point, v) if self.nodes[u]['direction'] == 1 else (u, branch_point)
 
-        ref_path = self.walk_with_variants(first, last, [])
-        alt_path = self.walk_with_variants(first, last, [variant_edge])
+        ref_path = self.walk_with_variants(first, last, [], search_limit=walkup_limit)
+        alt_path = self.walk_with_variants(first, last, [variant_edge], search_limit=walkup_limit)
 
         ref_search_limit, alt_search_limit = False, False
         if alt_search_limit:
@@ -947,15 +947,29 @@ class PangenomeGraph(nx.DiGraph):
         assert not any([node in nodes_to_exclude for node in variant_branch_points]), \
             "Found a terminus branch point for variant"
         start_nodes = [node for node in endpoint_nodes if node in variant_branch_points]
-        variant_end_points = [v if self.nodes[u]['direction'] == 1 else u for u, v in variants]
+        variant_end_points = []
+        for u, v in variants:
+            if self.nodes[u]['direction'] == 1 and self.nodes[v]['direction'] == 1:
+                variant_end_points.append(v)
+            elif self.nodes[u]['direction'] == -1 and self.nodes[v]['direction'] == -1:
+                variant_end_points.append(_node_complement(u))
+            elif self.nodes[u]['direction'] == 1 and self.nodes[v]['direction'] == -1:
+                variant_end_points.append(u)
+                variant_end_points.append(_node_complement(v))
+            elif self.nodes[u]['direction'] == -1 and self.nodes[v]['direction'] == 1:
+                variant_end_points.append(_node_complement(u))
+                variant_end_points.append(v)
+            else:
+                raise ValueError("Invalid direction for variant edge nodes.")
+        #variant_end_points = [v if self.nodes[u]['direction'] == 1 else u for u, v in variants]
         end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
-        assert len(start_nodes) == 1 and len(end_nodes) > 0, \
+        assert len(start_nodes) == 1 and len(end_nodes) == 1, \
             f"Found {len(start_nodes)} possible start nodes, and {len(end_nodes)} possible end nodes"
 
         start_node = start_nodes[0]
         end_node = end_nodes[0]
-        if self.nodes[end_node]['direction'] != self.nodes[start_node]['direction']:
-            end_node = _node_complement(end_node)
+        # if self.nodes[end_node]['direction'] != self.nodes[start_node]['direction']:
+        #     end_node = _node_complement(end_node)
 
         # start_degree = self.out_degree(start_node)
         # end_degree = self.in_degree(end_node)
