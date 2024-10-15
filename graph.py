@@ -947,6 +947,7 @@ class PangenomeGraph(nx.DiGraph):
         assert not any([node in nodes_to_exclude for node in variant_branch_points]), \
             "Found a terminus branch point for variant"
         start_nodes = [node for node in endpoint_nodes if node in variant_branch_points]
+        assert len(start_nodes) > 0, "Branch point of variant not found in endpoint nodes"
         variant_end_points = []
         for u, v in variants:
             if self.nodes[u]['direction'] == 1 and self.nodes[v]['direction'] == 1:
@@ -963,6 +964,8 @@ class PangenomeGraph(nx.DiGraph):
                 raise ValueError("Invalid direction for variant edge nodes.")
         #variant_end_points = [v if self.nodes[u]['direction'] == 1 else u for u, v in variants]
         end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
+        assert len(end_nodes) > 0, "End point of variant not found in endpoint nodes"
+
         assert len(start_nodes) == 1 and len(end_nodes) == 1, \
             f"Found {len(start_nodes)} possible start nodes, and {len(end_nodes)} possible end nodes"
 
