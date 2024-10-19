@@ -75,6 +75,14 @@ class PangenomeGraph(nx.DiGraph):
                  ):
         """
         Reads a .gfa file into a PangenomeGraph object.
+        :param gfa_file: path to a file name ending in .gfa
+        :param reference_path_index: one of the walks in the gfa file can be specified as the reference path; this
+        is the index of that walk
+        :param edgeinfo_file: path to a previously-computed .edgeinfo file, to avoid re-doing work
+        :param nodeinfo_file: path to a previously-computed .nodeinfo file, to avoid re-doing work
+        :param return_walks: if True, return a tuple (graph_object, walks, walk_names) where the walks are
+        read from the .gfa file; if False, return graph_object
+        :param compressed: set to True in order to read a gzipped .gfa file
         """
 
         if not os.path.exists(gfa_file):
@@ -163,7 +171,10 @@ class PangenomeGraph(nx.DiGraph):
             [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
         )
 
-    def variant_edges_summary(self):
+    def variant_edges_summary(self) -> dict:
+        """
+        Counts variant edges of different consequence.
+        """
         summary_dict = dict()
         for edge in tqdm(self.variant_edges):
             if self.is_inversion(edge):
@@ -174,14 +185,7 @@ class PangenomeGraph(nx.DiGraph):
                 summary_dict['back_edges'] = summary_dict.get('back_edges', 0) + 1
             if self.is_forward_edge(edge):
                 summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
-            # if self.is_replacement(edge):
-            #     summary_dict['replacement'] = summary_dict.get('replacement', 0) + 1
-            # if self.is_insertion(edge):
-            #     summary_dict['insertion'] = summary_dict.get('insertion', 0) + 1
-            # if self.is_snp(edge):
-            #     summary_dict['snps'] = summary_dict.get('snps', 0) + 1
-            # if self.is_mnp(edge):
-            #     summary_dict['mnps'] = summary_dict.get('mnps', 0) + 1
+
         summary_dict['total'] = len(self.variant_edges)
         # Desired order of keys
         key_order = ['inversion', 'crossing_edges', 'back_edges', 'forward_edges', 'total']
@@ -189,14 +193,14 @@ class PangenomeGraph(nx.DiGraph):
         summary_dict = {key: summary_dict.get(key, 0) for key in key_order}
         return summary_dict
 
-    def is_inversion(self, edge):
+    def is_inversion(self, edge: tuple[str, str]) -> bool:
         u, v = edge
         return self.nodes[u]['direction'] != self.nodes[v]['direction']
 
-    def is_in_tree(self, edge):
+    def is_in_tree(self, edge: tuple[str, str]) -> bool:
         return self.representative_edge(edge) in self.reference_tree
 
-    def is_back_edge(self, edge):
+    def is_back_edge(self, edge: tuple[str, str]) -> bool:
         if self.is_inversion(edge):
             return False
         if self.is_in_tree(edge):
@@ -205,7 +209,7 @@ class PangenomeGraph(nx.DiGraph):
         branch_point = self.edges[positive_edge]['branch_point']
         return branch_point == positive_edge[1]
 
-    def is_forward_edge(self, edge):
+    def is_forward_edge(self, edge: tuple[str, str]) -> bool:
         if self.is_inversion(edge):
             return False
         if self.is_in_tree(edge):
@@ -214,7 +218,7 @@ class PangenomeGraph(nx.DiGraph):
         branch_point = self.edges[positive_edge]['branch_point']
         return branch_point == positive_edge[0]
 
-    def is_crossing_edge(self, edge):
+    def is_crossing_edge(self, edge: tuple[str, str]) -> bool:
         if self.is_inversion(edge):
             return False
         if self.is_in_tree(edge):
@@ -225,25 +229,25 @@ class PangenomeGraph(nx.DiGraph):
             return False
         return True
 
-    def is_insertion(self, edge):
+    def is_insertion(self, edge: tuple[str, str]) -> bool:
         if not self.is_crossing_edge(edge):
             return False
         ref, _, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == 0
 
-    def is_replacement(self, edge):
+    def is_replacement(self, edge: tuple[str, str]) -> bool:
         if not self.is_crossing_edge(edge):
             return False
         ref, alt, _, _ = self.ref_alt_alleles(edge)
         return len(ref) != 0 and len(alt) != 0 and len(ref) != len(alt)
 
-    def is_snp(self, edge):
+    def is_snp(self, edge: tuple[str, str]) -> bool:
         if not self.is_crossing_edge(edge):
             return False
         ref, alt, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == len(alt) == 1
 
-    def is_mnp(self, edge):
+    def is_mnp(self, edge: tuple[str, str]) -> bool:
         if not self.is_crossing_edge(edge):
             return False
         ref, alt, _, _ = self.ref_alt_alleles(edge)
@@ -310,7 +314,10 @@ class PangenomeGraph(nx.DiGraph):
         self.nodes[minus_terminus + '_-']['forward_position'] = chromosome_length
 
     def compute_reference_tree(self):
-
+        """
+        Computes the reference tree, a DFS spanning tree of the positively-oriented subgraph; defines variant edges
+        as those that are not in the reference tree or its complement.
+        """
         # reference tree contains positive-direction nodes only, and no inversion edges
         positive_subgraph = self.subgraph([n for n, direction in self.nodes(data="direction") if direction == 1])
         self.reference_tree = max_weight_dfs_tree(positive_subgraph, reference_path=self.reference_path)
@@ -332,6 +339,17 @@ class PangenomeGraph(nx.DiGraph):
                   chr_name: str,
                   size_threshold: int = 200,
                   walkup_limit: int = inf) -> None:
+        """
+        # TODO
+        :param walks:
+        :param sample_names:
+        :param vcf_filename:
+        :param tree_filename:
+        :param chr_name:
+        :param size_threshold:
+        :param walkup_limit:
+        :return:
+        """
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
 
         meta_info = f'##fileformat=VCFv4.2\n'
@@ -431,12 +449,22 @@ class PangenomeGraph(nx.DiGraph):
                 file.write('\t'.join(allele_data_list) + '\n')
 
     def write_variant_node_ids(self, filename: str) -> None:
+        """
+        # TODO
+        :param filename:
+        :return:
+        """
         with open(filename, 'w') as file:
             file.write("Node_u_id,Node_v_id\n")
             for u, v in self.variant_edges:
                 file.write(f"{u},{v}\n")
 
     def write_tree(self, filename: str) -> list:
+        """
+        Writes the reference tree in a format such that it can be traversed without being loaded into memory.
+        :param filename: save file path, ending by convention in .tree
+        :return: order in which nodes were recorded in the file
+        """
         with open(filename, 'w') as file:
             line_in_file = {}
             current_position = 0
@@ -458,6 +486,10 @@ class PangenomeGraph(nx.DiGraph):
             return order
 
     def write_edgeinfo(self, filename: str) -> None:
+        """
+        Writes information computed about each edge such that it can be retrieved without re-computing it.
+        :param filename: save file path, ending by convention in .edgeinfo
+        """
         def to_string(edge_attribute):
             if type(edge_attribute) is bool:
                 return '1' if edge_attribute else '0'
@@ -478,7 +510,10 @@ class PangenomeGraph(nx.DiGraph):
                 file.write(','.join(edge_data_list) + '\n')
 
     def write_nodeinfo(self, filename: str) -> None:
-
+        """
+        Writes information about each node such that it can be retrieved without re-computing it.
+        :param filename: save file path, ending by convention in .nodeinfo
+        """
         attributes = [attribute for attribute in self.node_attribute_names if attribute != 'sequence']
         with open(filename, 'w') as file:
             file.write('node,')
@@ -491,7 +526,6 @@ class PangenomeGraph(nx.DiGraph):
                 file.write(','.join([str(data[key]) for key in attributes]) + '\n')
 
     def read_edgeinfo(self, filename: str) -> None:
-
         def from_string(s: str):
             try:
                 float(s)
@@ -559,6 +593,9 @@ class PangenomeGraph(nx.DiGraph):
 
 
     def add_binode(self, binode: str, seq: str = ''):
+        """
+        Adds a binode to the bidirected graph, comprising a node and its complement.
+        """
         node_data = {key: 0 for key in self.node_attribute_names}
         node_data['sequence'] = seq
         node_data['direction'] = 1
@@ -571,7 +608,9 @@ class PangenomeGraph(nx.DiGraph):
         self.add_node(str(binode) + '_-', **node_data)
 
     def add_biedge(self, node1: str, node2: str, *, weight: int = 0):
-
+        """
+        Adds a biedge to the bidirected graph, comprising an edge and its complement.
+        """
         if self.has_edge(node1, node2):
             raise ValueError(f'Attempted to add duplicate biedge: {node1}, {node2}')
 
@@ -586,11 +625,20 @@ class PangenomeGraph(nx.DiGraph):
         self.number_of_biedges += 1
 
     def representative_edge(self, edge: tuple):
+        """
+        Returns the edge associated with a biedge which is in the .gfa file.
+        :param edge: one of the two edges in the biedge
+        :return: the one which is in the .gfa file
+        """
         return edge if self.edges[edge]['is_representative'] else _edge_complement(edge)
 
     def positive_variant_edge(self, edge: tuple):
         return edge if self.nodes[edge[0]]['direction'] == 1 or self.is_inversion(edge) else _edge_complement(edge)
-    def compute_edge_weights(self, walks):
+
+    def compute_edge_weights(self, walks: list[list]):
+        """
+        Computes the number of times that each edge is visited by some walk.
+        """
         for walk in walks:
 
             for u, v in zip(walk[:-1], walk[1:]):
@@ -599,7 +647,9 @@ class PangenomeGraph(nx.DiGraph):
 
     def annotate_branch_points(self) -> None:
         """
-        Computes the branch point, i.e. the lowest common ancestor in the reference tree, of each variant edge.
+        Computes the branch point, i.e. the lowest common ancestor in the reference tree, of each variant biedge. The
+        branch point is a positive orientation node. The edges (u,v), (u complement, v), (v,u), etc., all have the same
+        branch point.
         """
 
         positive_direction_variants = [(self.positive_node(u), self.positive_node(v)) for u,v in self.variant_edges]
@@ -763,6 +813,11 @@ class PangenomeGraph(nx.DiGraph):
 
 
     def genotype(self, walk: list[str]) -> dict:
+        """
+        Computes the number of time that a walk visits each variant edge.
+        :param walk: list of nodes
+        :return: dictionary of edge-count pairs
+        """
 
         # Append start and end nodes to walk
         start = [self.termini[0] + '_+' if self.nodes[walk[0]]['direction'] == 1 else self.termini[1] + '_-']
@@ -788,6 +843,12 @@ class PangenomeGraph(nx.DiGraph):
         return genotype
 
     def count_edge_visits(self, genotype: dict) -> dict:
+        """
+        Computes the number of time that a walk visits every edge, given the number of times it visits every
+        variant edge.
+        :param genotype: for every variant edge that is visited, the number of visits
+        :return: for every edge that is visited, the number of visits
+        """
 
         sinks: list[str] = []
 
@@ -868,6 +929,9 @@ class PangenomeGraph(nx.DiGraph):
         return edge_visits
 
     def compute_binode_positions(self):
+        """
+        Computes the position of each binode along the linear reference path
+        """
         for node in self.reference_tree.nodes():
             self.nodes[node]['position'] = -inf
             self.nodes[node]['forward_position'] = inf
@@ -897,6 +961,12 @@ class PangenomeGraph(nx.DiGraph):
             self.nodes[_node_complement(u)]['forward_position'] = self.nodes[u]['forward_position']
 
     def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges=True) -> list:
+        """
+        Computes variant edges whose position intersects some interval, by iterating over all variant edges.
+        :param half_open_interval: [start, end) of the interval
+        :param exclude_root_edges: if True, edges beginning or ending at a terminus are excluded
+        :return: list of edges
+        """
         start, end = half_open_interval
         result = []
 
