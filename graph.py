@@ -388,10 +388,7 @@ class PangenomeGraph(nx.DiGraph):
                 # 'CHROM'
                 allele_data_list.append(chr_name)
                 # 'POS'
-                if (self.is_snp(edge) or self.is_mnp(edge)) and self.nodes[v]['on_reference_path'] == 1:
-                    allele_data_list.append(str(int(self.nodes[u]['position']) + 1))
-                else:
-                    allele_data_list.append(str(int(self.nodes[u]['position'])))
+                allele_data_list.append(str(self.get_variant_position(edge)))
                 # 'ID'
                 allele_data_list.append('.')
                 # 'REF'
@@ -556,8 +553,6 @@ class PangenomeGraph(nx.DiGraph):
                 for key, idx in attributes.items():
                     self.nodes[node][key] = from_string(parts[idx])
 
-
-
     def add_binode(self, binode: str, seq: str = ''):
         node_data = {key: 0 for key in self.node_attribute_names}
         node_data['sequence'] = seq
@@ -590,6 +585,14 @@ class PangenomeGraph(nx.DiGraph):
 
     def positive_variant_edge(self, edge: tuple):
         return edge if self.nodes[edge[0]]['direction'] == 1 or self.is_inversion(edge) else _edge_complement(edge)
+
+    def get_variant_position(self, edge: tuple) -> int:
+        u, v = edge
+        if (self.is_snp(edge) or self.is_mnp(edge)) and self.nodes[v]['on_reference_path'] == 1:
+            return int(self.nodes[u]['position']) + 1
+        else:
+            return int(self.nodes[u]['position'])
+
     def compute_edge_weights(self, walks):
         for walk in walks:
 
@@ -930,8 +933,8 @@ class PangenomeGraph(nx.DiGraph):
         if len(variants) != 2:
             raise ValueError("Expected exactly 2 variants in the variant list")
 
-        assert not any([self.is_back_edge(edge) for edge in variants]), \
-            "Found a back edge in the variant list"
+        if any([self.is_back_edge(edge) for edge in variants]):
+            return "Not triallelic"
 
         if self.is_inversion(variants[0]):
             assert self.is_inversion(variants[1]), \
@@ -944,10 +947,12 @@ class PangenomeGraph(nx.DiGraph):
 
         # Detect which node of each binode demarcates the superbubble
         variant_branch_points = [self.edges[e]['branch_point'] for e in variants]
-        assert not any([node in nodes_to_exclude for node in variant_branch_points]), \
-            "Found a terminus branch point for variant"
+        assert not any([brach_point == 0 for brach_point in variant_branch_points]), "Branch point of variant not found"
+        if any([node in nodes_to_exclude for node in variant_branch_points]):
+            return "Not triallelic"
         start_nodes = [node for node in endpoint_nodes if node in variant_branch_points]
-        assert len(start_nodes) > 0, "Branch point of variant not found in endpoint nodes"
+        if len(start_nodes) == 0:
+            return "Not triallelic"
         variant_end_points = []
         for u, v in variants:
             if self.nodes[u]['direction'] == 1 and self.nodes[v]['direction'] == 1:
@@ -964,7 +969,8 @@ class PangenomeGraph(nx.DiGraph):
                 raise ValueError("Invalid direction for variant edge nodes.")
         #variant_end_points = [v if self.nodes[u]['direction'] == 1 else u for u, v in variants]
         end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
-        assert len(end_nodes) > 0, "End point of variant not found in endpoint nodes"
+        if len(end_nodes) == 0:
+            return "Not triallelic"
 
         assert len(start_nodes) == 1 and len(end_nodes) == 1, \
             f"Found {len(start_nodes)} possible start nodes, and {len(end_nodes)} possible end nodes"
