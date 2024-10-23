@@ -192,6 +192,46 @@ def extract_node_bubble_partition_from_snarl(snarl_path: str) -> Tuple[Dict, Dic
 
     return bubbles, node_partition
 
+def find_variants_outside_interaltree(interval_tree: IntervalTree,
+                                      G: PangenomeGraph,
+                                      exclude_terminus: bool = False) -> list:
+    egde_outside_region = []
+    for edge in sorted(list(G.variant_edges)):
+        u, v = edge
+
+        if exclude_terminus:
+            nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
+            if u in nodes_to_exclude or v in nodes_to_exclude or G.edges[edge]['branch_point'] in nodes_to_exclude:
+                continue
+
+        var_pos = G.get_variant_position(edge)
+        is_out_region = len(interval_tree[var_pos]) == 0
+
+        if is_out_region:
+            egde_outside_region.append(edge)
+
+    return egde_outside_region
+
+def find_variants_in_intervaltree(interval_tree: IntervalTree,
+                                  G: PangenomeGraph,
+                                  exclude_terminus: bool = False) -> list:
+    egde_in_region = []
+    for edge in sorted(list(G.variant_edges)):
+        u, v = edge
+
+        if exclude_terminus:
+            nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
+            if u in nodes_to_exclude or v in nodes_to_exclude or G.edges[edge]['branch_point'] in nodes_to_exclude:
+                continue
+
+        var_pos = G.nodes[u]['position']
+        is_in_region = len(interval_tree[var_pos]) > 0
+
+        if is_in_region:
+            egde_in_region.append(edge)
+
+    return egde_in_region
+
 def find_bubbles_from_vcf(G: PangenomeGraph, vcf_path: str) -> Dict:
     bubbles = {}
     with open(vcf_path, 'r') as vcf_file:
@@ -269,39 +309,33 @@ def snarl_level_summary(bubble_dict: Dict) -> Dict:
 
     return level_count
 
+def variant_outliers(G: PangenomeGraph,
+                     bed_list: list[str],
+                     chr_name: str = None,
+                     exclude_terminus: bool = False) -> list:
+    interval_trees = [get_interval_tree_from_bed(bed, chr_name) for bed in bed_list]
+    outside_sets = [set(find_variants_outside_interaltree(interval_tree, G, exclude_terminus)) for interval_tree in
+                    interval_trees]
+    edge_outside_region = list(set.intersection(*outside_sets))
+    return edge_outside_region
+
+
 def variant_summary_result_by_region(G: PangenomeGraph,
                                     bed_file: str = None,
                                     chr_name: str = None,
-                                    within_only: bool = True,
                                     exclude_terminus: bool = False) -> Dict:
     if bed_file:
         # def check_edge_in_region(pos_u, pos_v, start, end):
         #     return (start <= pos_u <= end) and (start <= pos_v <= end)
         assert chr_name, "Chromosome name is required for BED file"
         interval_tree = get_interval_tree_from_bed(bed_file, chr_name)
-        egde_in_region = []
-        for edge in sorted(list(G.variant_edges)):
-            u, v = edge
-
-            if exclude_terminus:
-                nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
-                if u in nodes_to_exclude or v in nodes_to_exclude:
-                    continue
-
-            pos_u = G.nodes[u]['position']
-            pos_v = G.nodes[v]['position']
-
-            if within_only:
-                is_in_region = len(interval_tree[pos_u]) > 0 and len(interval_tree[pos_v]) > 0
-            else:
-                is_in_region = len(interval_tree[pos_u]) > 0 or len(interval_tree[pos_v]) > 0
-
-            if is_in_region:
-                egde_in_region.append(edge)
+        egde_in_region = find_variants_in_intervaltree(interval_tree, G, exclude_terminus)
     else:
         if exclude_terminus:
             nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
-            egde_in_region = [edge for edge in list(G.variant_edges) if edge[0] not in nodes_to_exclude and edge[1] not in nodes_to_exclude]
+            egde_in_region = [edge for edge in list(G.variant_edges) if edge[0] not in nodes_to_exclude
+                              and edge[1] not in nodes_to_exclude
+                              and G.edges[edge]['branch_point'] not in nodes_to_exclude]
         else:
             egde_in_region = G.variant_edges
 
