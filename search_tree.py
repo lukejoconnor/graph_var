@@ -1,5 +1,5 @@
 import networkx as nx
-from utils import _node_complement
+from utils import node_complement
 
 def max_weight_dfs_tree(G: nx.DiGraph,
                         reference_path: list) -> nx.DiGraph:
@@ -68,10 +68,10 @@ def assign_node_directions(G: nx.DiGraph,
 
         # Last-added edges will be visited first
         for u, neighbor, _ in neighbors:
-            if neighbor in visited or _node_complement(neighbor) in visited:
+            if neighbor in visited or node_complement(neighbor) in visited:
                 continue
             stack.append((current_node, neighbor, current_direction))
-            stack.append((None, _node_complement(neighbor), -current_direction))
+            stack.append((None, node_complement(neighbor), -current_direction))
 
     for i in range(len(reference_path)):
         if i == 0:
