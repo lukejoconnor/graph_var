@@ -341,13 +341,13 @@ class PangenomeGraph(nx.DiGraph):
                   exclude_terminus: bool = False) -> None:
         """
         # TODO
-        :param walks:
-        :param sample_names:
-        :param vcf_filename:
-        :param tree_filename:
-        :param chr_name:
-        :param size_threshold:
-        :param walkup_limit:
+        :param walks: the list of walks extracted from the .gfa file
+        :param sample_names: the haplotype id from the .gfa file
+        :param vcf_filename: the output vcf file path
+        :param tree_filename: the output tree file path which contains the node and corresponding sequence
+        :param chr_name: the chromosome name in the first column of output vcf file
+        :param size_threshold: the truncation length of ref and alt sequence
+        :param walkup_limit: the maximum length of the walk up to the branch point
         :return:
         """
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
