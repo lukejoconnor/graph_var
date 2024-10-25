@@ -337,7 +337,8 @@ class PangenomeGraph(nx.DiGraph):
                   tree_filename: str,
                   chr_name: str,
                   size_threshold: int = None,
-                  walkup_limit: int = inf) -> None:
+                  walkup_limit: int = inf,
+                  exclude_terminus: bool = False) -> None:
         """
         # TODO
         :param walks:
@@ -375,6 +376,11 @@ class PangenomeGraph(nx.DiGraph):
             file.write('#'+'\t'.join(header_names) + '\n')
 
             for u, v in tqdm(sorted(list(self.variant_edges), key=lambda x: self.nodes[x[0]]['position'])):
+                if exclude_terminus:
+                    nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
+                    if u in nodes_to_exclude or v in nodes_to_exclude:
+                        continue
+
                 if self.nodes[u]['direction'] != self.nodes[v]['direction']:
                     continue  # TODO how to handle inversions?
 
@@ -997,7 +1003,7 @@ class PangenomeGraph(nx.DiGraph):
         :param variants: list of variants within the superbubble; there must be two of them
         :return: the class of superbubble
         """
-        nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}  # Set of terminus to exclude
+        nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
 
         if len(variants) != 2:
             raise ValueError("Expected exactly 2 variants in the variant list")
