@@ -394,6 +394,9 @@ class PangenomeGraph(nx.DiGraph):
                 if size_threshold:
                     ref = ref_allele[:size_threshold]
                     alt = alt_allele[:size_threshold]
+                else:
+                    ref = ref_allele
+                    alt = alt_allele
 
                 allele_data_list = []
 
