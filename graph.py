@@ -76,7 +76,7 @@ class PangenomeGraph(nx.DiGraph):
         Reads a .gfa file into a PangenomeGraph object.
         :param gfa_file: path to a file name ending in .gfa
         :param reference_path_index: one of the walks in the gfa file can be specified as the reference path; this
-        is the index of that walk
+        is the index of that walk. If unspecified, the first walk whose name is 'GRCh38' is used, if any.
         :param edgeinfo_file: path to a previously-computed .edgeinfo file, to avoid re-doing work
         :param nodeinfo_file: path to a previously-computed .nodeinfo file, to avoid re-doing work
         :param return_walks: if True, return a tuple (graph_object, walks, walk_names) where the walks are
@@ -118,7 +118,7 @@ class PangenomeGraph(nx.DiGraph):
             G.add_biedge(node1, node2)
 
         if reference_index >= len(walks) or reference_index < 0:
-            raise ValueError(f'Reference walk index should be an integer >= 0 and < {G.num_walks}')
+            raise ValueError(f'Reference walk index should be an integer >= 0')
 
         G.add_reference_path(walks[reference_index])
 
