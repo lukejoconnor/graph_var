@@ -70,7 +70,7 @@ def read_gfa(filename, compressed=False):
           edges.append(edge)
       elif parts[0] == 'W':
           if not hit_reference:
-              if parts[1] == 'GRCh38' and parts[3].startswith('chr'):
+              if parts[1] == 'GRCh38':
                   hit_reference = True
               else:
                   reference_index += 1
