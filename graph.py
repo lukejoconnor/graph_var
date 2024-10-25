@@ -336,7 +336,7 @@ class PangenomeGraph(nx.DiGraph):
                   vcf_filename: str,
                   tree_filename: str,
                   chr_name: str,
-                  size_threshold: int = 200,
+                  size_threshold: int = None,
                   walkup_limit: int = inf) -> None:
         """
         # TODO
@@ -391,8 +391,9 @@ class PangenomeGraph(nx.DiGraph):
                     ref_allele = last_letter_of_branch_point + ref_allele
                     alt_allele = last_letter_of_branch_point + alt_allele
 
-                ref = ref_allele[:size_threshold]
-                alt = alt_allele[:size_threshold]
+                if size_threshold:
+                    ref = ref_allele[:size_threshold]
+                    alt = alt_allele[:size_threshold]
 
                 allele_data_list = []
 
