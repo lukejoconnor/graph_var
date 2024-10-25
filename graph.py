@@ -340,7 +340,8 @@ class PangenomeGraph(nx.DiGraph):
                   walkup_limit: int = inf,
                   exclude_terminus: bool = False) -> None:
         """
-        # TODO
+        Writes the variant call format (vcf) file and the tree file. The vcf file contains the reference and
+        alternative alleles, and the tree file contains the node names and corresponding sequences.
         :param walks: the list of walks extracted from the .gfa file
         :param sample_names: the haplotype id from the .gfa file
         :param vcf_filename: the output vcf file path
