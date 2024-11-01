@@ -302,6 +302,23 @@ def variant_edges_summary(G: PangenomeGraph, var_list: list) -> Dict:
     summary_dict['total'] = len(var_list)
     return summary_dict
 
+def prepare_dataframe(var_dict):
+    return pd.DataFrame({
+        "Variant Type": ['Snps', 'Mnps', 'Insertion', 'Deletion', 'Replacement', 'Inversion', 'Back', 'Forward', 'Crossing', 'Total'],
+        "Count": [
+                  var_dict.get('snps', 0),
+                  var_dict.get('mnps', 0),
+                  var_dict.get('insertion', 0),
+                  var_dict.get('forward_edges', 0),
+                  var_dict.get('replacement', 0),
+                  var_dict.get('inversion', 0),
+                  var_dict.get('back_edges', 0),
+                  var_dict.get('forward_edges', 0),
+                  var_dict.get('crossing_edges', 0),
+                  var_dict.get('total', 0),
+        ]
+    })
+
 def snarl_level_summary(bubble_dict: Dict) -> Dict:
     level_count = dict()
     for _, bubble_info in bubble_dict.items():
