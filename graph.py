@@ -28,11 +28,13 @@ class PangenomeGraph(nx.DiGraph):
         edges = [edge_with_data for edge_with_data in self.edges(data=True) if edge_with_data[2]['is_representative']]
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
-    @property
-    def sorted_positive_variant_edge(self) -> list[str]:
-        edges = [edge if self.nodes[edge[0]]['direction'] == 1 or self.is_inversion(edge) else edge_complement(edge)
-                 for edge in list(self.variant_edges)]
-        return sorted(edges)
+    def sorted_variant_edge(self, exclude_terminus=True) -> list[str]:
+        if exclude_terminus:
+            return sorted([edge for edge in self.variant_edges if
+                           not self.is_terminal_node(edge[0]) and not self.is_terminal_node(edge[1])],
+                          key=lambda x: self.nodes[x[0]]['position'])
+        else:
+            return sorted(self.variant_edges, key=lambda x: self.nodes[x[0]]['position'])
 
     @property
     def sorted_biedge(self) -> list[str]:
@@ -376,12 +378,7 @@ class PangenomeGraph(nx.DiGraph):
             file.write(meta_info)
             file.write('#'+'\t'.join(header_names) + '\n')
 
-            for u, v in tqdm(sorted(list(self.variant_edges), key=lambda x: self.nodes[x[0]]['position'])):
-                if exclude_terminus:
-                    nodes_to_exclude = {'+_terminus_+', '+_terminus_-', '-_terminus_+', '-_terminus_-'}
-                    if u in nodes_to_exclude or v in nodes_to_exclude:
-                        continue
-
+            for u, v in tqdm(self.sorted_variant_edge(exclude_terminus=exclude_terminus)):
                 if self.nodes[u]['direction'] != self.nodes[v]['direction']:
                     continue  # TODO how to handle inversions?
 
@@ -924,6 +921,17 @@ class PangenomeGraph(nx.DiGraph):
 
         return edge_visits
 
+    def allele_length(self) -> dict:
+        """
+        Computes the allele length for each variant edge.
+        :return: dictionary mapping variant edges to its own allele length, len(ref_allele) + len(alt_allele)
+        """
+        def _allele_length(variant_edge):
+            ref_allele, alt_allele, _, _ = self.ref_alt_alleles(variant_edge)
+            return len(ref_allele) + len(alt_allele)
+
+        return {e: _allele_length(e) for e in self.sorted_variant_edge(exclude_terminus=True)}
+
     def allele_count(self) -> dict:
         """
         Computes alt and ref allele counts, defined as the number of times that a walk visits a variant
@@ -932,10 +940,13 @@ class PangenomeGraph(nx.DiGraph):
         """
         def reference_tree_edge(variant_edge):
             _, v = self.positive_variant_edge(variant_edge)
+            if self.is_inversion(variant_edge):
+                v = self.positive_node(v)
             w = self.parent_in_tree(v)
             return w, v
 
-        return {e: (self.edges[reference_tree_edge(e)]['weight'], self.edges[e]['weight']) for e in self.variant_edges}
+        return {e: (self.edges[reference_tree_edge(e)]['weight'], self.edges[e]['weight'])
+                for e in self.sorted_variant_edge(exclude_terminus=True)}
 
     def compute_binode_positions(self):
         """
