@@ -47,7 +47,7 @@ class PangenomeGraph(nx.DiGraph):
 
     @property
     def node_attribute_names(self) -> tuple:
-        return 'direction', 'sequence', 'position', 'forward_position', 'on_reference_path'
+        return 'direction', 'sequence', 'position', 'distance_from_reference', 'on_reference_path'
 
     @property
     def vcf_attribute_names(self) -> tuple:
@@ -309,10 +309,6 @@ class PangenomeGraph(nx.DiGraph):
         self.nodes[plus_terminus + '_-']['position'] = 0
         self.nodes[minus_terminus + '_+']['position'] = chromosome_length
         self.nodes[minus_terminus + '_-']['position'] = chromosome_length
-        self.nodes[plus_terminus + '_+']['forward_position'] = 0
-        self.nodes[plus_terminus + '_-']['forward_position'] = 0
-        self.nodes[minus_terminus + '_+']['forward_position'] = chromosome_length
-        self.nodes[minus_terminus + '_-']['forward_position'] = chromosome_length
 
     def compute_reference_tree(self):
         """
@@ -950,17 +946,17 @@ class PangenomeGraph(nx.DiGraph):
 
     def compute_binode_positions(self):
         """
-        Computes the position of each binode along the linear reference path
+        Computes the position of each binode along the linear reference path, as well as the distance from the linear
+        reference, in basepairs.
         """
         for node in self.reference_tree.nodes():
-            self.nodes[node]['position'] = -inf
-            self.nodes[node]['forward_position'] = inf
+            self.nodes[node]['distance_from_reference'] = inf  # contigs not reachable from reference are at distance infinity
 
         current_position = 0
         for u in self.reference_path:
             current_position += len(self.nodes[u]['sequence'])
             self.nodes[u]['position'] = current_position
-            self.nodes[u]['forward_position'] = current_position
+            self.nodes[u]['distance_from_reference'] = 0
 
         order = list(nx.topological_sort(self.reference_tree))
         for u in order[1:]: # skip the root
@@ -969,16 +965,13 @@ class PangenomeGraph(nx.DiGraph):
                                                self.nodes[predecessor]['position'])
             self.nodes[node_complement(u)]['position'] = self.nodes[u]['position']
 
-        for u in reversed(order[:-1]):
-            successors = [v for _, v, is_back_edge in self.out_edges(u, data='is_back_edge') if not is_back_edge]
-            if successors:
-                successors_minimum_position = np.min([self.nodes[v]['forward_position'] for v in successors])
-            else:
-                successors_minimum_position = inf
+            if self.nodes[u]['on_reference_path']:
+                continue
+            self.nodes[u]['distance_from_reference'] = (self.nodes[predecessor]['distance_from_reference'] +
+                                                        len(self.nodes[u]['sequence']))
+            self.nodes[node_complement(u)]['distance_from_reference'] = self.nodes[u]['distance_from_reference']
 
-            self.nodes[u]['forward_position'] = np.minimum(self.nodes[u]['forward_position'],
-                                                            successors_minimum_position)
-            self.nodes[node_complement(u)]['forward_position'] = self.nodes[u]['forward_position']
+
 
     def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges=True) -> list:
         """
