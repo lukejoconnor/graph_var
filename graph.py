@@ -336,7 +336,7 @@ class PangenomeGraph(nx.DiGraph):
                   chr_name: str,
                   size_threshold: int = None,
                   walkup_limit: int = inf,
-                  exclude_terminus: bool = False) -> None:
+                  exclude_terminus: bool = True) -> None:
         """
         Writes the variant call format (vcf) file and the tree file. The vcf file contains the reference and
         alternative alleles, and the tree file contains the node names and corresponding sequences.
@@ -353,7 +353,7 @@ class PangenomeGraph(nx.DiGraph):
 
         meta_info = f'##fileformat=VCFv4.2\n'
         meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-        meta_info += f'##INFO=<ID=NR,Number=1,Type=String,Description="The reference allele if it is not on reference path.">\n'
+        meta_info += f'##INFO=<ID=DR,Number=1,Type=Integer,Description="Distance of node u, v from reference.">\n'
         meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
         meta_info += f'##INFO=<ID=LU,Number=1,Type=Integer,Description="Line number in the tree file">\n'
@@ -400,11 +400,11 @@ class PangenomeGraph(nx.DiGraph):
 
                 allele_data_list = []
 
-                if self.nodes[v]['on_reference_path'] == 1:
-                    new_ref = '.'
-                else:
-                    new_ref = ref
-                    ref = '.'
+                # if self.nodes[v]['on_reference_path'] == 1:
+                #     new_ref = '.'
+                # else:
+                #     new_ref = ref
+                #     ref = '.'
 
                 # 'CHROM'
                 allele_data_list.append(chr_name)
@@ -424,7 +424,7 @@ class PangenomeGraph(nx.DiGraph):
                 if u not in node_to_line:
                     print(u, list(node_to_line.items()))
 
-                allele_data_list.append(f'NR={new_ref};'
+                allele_data_list.append(f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
                                         f'PU={int(self.nodes[u]["position"])};'
                                         f'PV={int(self.nodes[v]["position"])};'
                                         f'LU={int(node_to_line[u])};'
