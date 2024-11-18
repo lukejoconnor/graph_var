@@ -1,0 +1,7 @@
+CHR,POS_U,POS_V,REF,ALT,REF_OFF,LINE_U,LINE_V
+chr20,3,3,,*,,4,4
+chr20,5,4,,**,,6,5
+chr20,2,4,*,,,3,5
+chr20,3,5,*,,,4,6
+chr20,4,4,,*,,5,5
+chr20,4,3,,**,,5,4
