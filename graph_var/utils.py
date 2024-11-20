@@ -126,3 +126,24 @@ def load_graph_from_pkl(path, compressed=False):
             walks = pickle.load(file)
             walk_sample_names = pickle.load(file)
     return G, walks, walk_sample_names
+
+def group_walks_by_name(walks: list, names: list) -> dict:
+    """
+    Group walks by their names into sublists.
+    
+    Args:
+        walks: List of walks (each walk is a list of nodes)
+        names: List of names corresponding to each walk
+    
+    Returns:
+        List of lists, where each sublist contains all walks with the same name
+    """
+    # Create a dictionary to store walks by name
+    from collections import defaultdict
+    walks_by_name = defaultdict(list)
+    
+    # Group walks by their names
+    for walk, name in zip(walks, names):
+        walks_by_name[name].append(walk)
+    
+    return walks_by_name

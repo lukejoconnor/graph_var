@@ -45,21 +45,22 @@ def parse_args():
     
     parser.add_argument(
         "--chr-id",
-        help="Chromosome ID for VCF file",
-        default="chr1"
+        help="Chromosome ID for VCF file (default: chr0)",
+        default="chr0"
     )
     
     parser.add_argument(
         "--ref-path-index",
-        help="Index of the reference path (default: 1)",
+        help="Index of the reference path (default: None, will try to find GRCh38)",
         type=int,
-        default=1
+        default=None
     )
     
     parser.add_argument(
         "--summary",
-        action="store_true",
-        help="Print summary of variant types"
+        nargs='?',
+        const=True,
+        help="Print summary of variant types. Optionally specify a file to write the summary to"
     )
     
     return parser.parse_args()
@@ -77,9 +78,11 @@ def main():
         print(f"Error: GFA file '{args.gfa_file}' not found", file=sys.stderr)
         sys.exit(1)
     
-    # Create output directory if it doesn't exist
-    if args.vcf:
-        os.makedirs(os.path.dirname(os.path.abspath(args.vcf)), exist_ok=True)
+    # Create output directories if they don't exist
+    output_files = [args.vcf, args.out_nodeinfo, args.out_edgeinfo]
+    for filepath in output_files:
+        if filepath:
+            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
     
     # Load the graph
     try:
@@ -91,31 +94,14 @@ def main():
             reference_path_index=args.ref_path_index
         )
         
-        # Generate node info if requested
+        # Write node info if requested
         if args.out_nodeinfo:
-            node_info = {
-                node: {
-                    'sequence': data.get('sequence', ''),
-                    'position': data.get('position', 0),
-                    'direction': data.get('direction', ''),
-                    'on_reference_path': data.get('on_reference_path', False)
-                }
-                for node, data in G.nodes(data=True)
-            }
-            write_info_file(node_info, args.out_nodeinfo)
+            G.write_nodeinfo(args.out_nodeinfo)
             print(f"Node info written to: {args.out_nodeinfo}")
         
-        # Generate edge info if requested
+        # Write edge info if requested
         if args.out_edgeinfo:
-            edge_info = {
-                f"{u}->{v}": {
-                    'weight': data.get('weight', 0),
-                    'is_in_tree': data.get('is_in_tree', False),
-                    'branch_point': data.get('branch_point', False)
-                }
-                for u, v, data in G.edges(data=True)
-            }
-            write_info_file(edge_info, args.out_edgeinfo)
+            G.write_edgeinfo(args.out_edgeinfo)
             print(f"Edge info written to: {args.out_edgeinfo}")
         
         # Generate VCF if requested
@@ -133,11 +119,18 @@ def main():
         
         # Print summary if requested
         if args.summary:
-            edge_type_count = G.variant_edges_summary()
-            print("\nVariant Edge Type Summary:")
-            print("--------------------------")
-            for edge_type, count in edge_type_count.items():
-                print(f"{edge_type}: {count}")
+            summary = G.variant_edges_summary()
+            summary_text = "\nVariant Types Summary:\n" + "\n".join(f"{k}: {v}" for k, v in summary.items())
+            
+            if isinstance(args.summary, str):
+                # Write to file if a filename was provided
+                os.makedirs(os.path.dirname(os.path.abspath(args.summary)), exist_ok=True)
+                with open(args.summary, 'w') as f:
+                    f.write(summary_text)
+                print(f"Summary written to: {args.summary}")
+            else:
+                # Print to stdout if no filename was provided
+                print(summary_text)
             
             print(f"\nGraph Statistics:")
             print(f"Total nodes: {G.number_of_nodes()}")

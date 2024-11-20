@@ -1,5 +1,5 @@
 import networkx as nx
-from utils import node_complement
+from .utils import node_complement
 
 def max_weight_dfs_tree(G: nx.DiGraph,
                         reference_path: list) -> nx.DiGraph:
