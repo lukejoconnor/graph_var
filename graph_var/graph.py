@@ -1,8 +1,10 @@
+from functools import lru_cache
+from linecache import cache
 from math import inf
 import networkx as nx
 import numpy as np
-from utils import read_gfa, node_complement, edge_complement, sequence_complement, walk_complement
-from search_tree import assign_node_directions, max_weight_dfs_tree
+from .utils import read_gfa, node_complement, edge_complement, sequence_complement, walk_complement
+from .search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
 from tqdm import tqdm
@@ -19,8 +21,13 @@ class PangenomeGraph(nx.DiGraph):
     def termini(self) -> tuple[str, str]:
         return '+_terminus', '-_terminus'
 
-    def is_terminal_node(self, node: str) -> bool:
-        return node[:-2] in self.termini
+    def is_terminal(self, node_or_edge) -> bool:
+        if isinstance(node_or_edge, str):
+            return node_or_edge[:-2] in self.termini
+        elif isinstance(node_or_edge, tuple):
+            return self.is_terminal(node_or_edge[0]) or self.is_terminal(node_or_edge[1])
+        else:
+            raise TypeError
 
     # Each biedge has a representative edge, whichever is in the .gfa file
     @property
@@ -28,10 +35,11 @@ class PangenomeGraph(nx.DiGraph):
         edges = [edge_with_data for edge_with_data in self.edges(data=True) if edge_with_data[2]['is_representative']]
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
+    @lru_cache
     def sorted_variant_edge(self, exclude_terminus=True) -> list[str]:
         if exclude_terminus:
             return sorted([edge for edge in self.variant_edges if
-                           not self.is_terminal_node(edge[0]) and not self.is_terminal_node(edge[1])],
+                           not self.is_terminal(edge)],
                           key=lambda x: self.nodes[x[0]]['position'])
         else:
             return sorted(self.variant_edges, key=lambda x: self.nodes[x[0]]['position'])
@@ -43,11 +51,11 @@ class PangenomeGraph(nx.DiGraph):
 
     @property
     def biedge_attribute_names(self) -> tuple:
-        return 'index', 'weight', 'is_in_tree', 'branch_point'
+        return 'index', 'weight', 'is_in_tree', 'branch_point', 'is_back_edge'
 
     @property
     def node_attribute_names(self) -> tuple:
-        return 'direction', 'sequence', 'position', 'distance_from_reference', 'on_reference_path'
+        return 'direction', 'sequence', 'position', 'right_position', 'distance_from_reference', 'on_reference_path'
 
     @property
     def vcf_attribute_names(self) -> tuple:
@@ -57,13 +65,24 @@ class PangenomeGraph(nx.DiGraph):
     def number_of_binodes(self) -> int:
         return self.number_of_nodes() // 2
 
-    def edge_on_reference_path(self, edge: tuple):
-        if not self.has_edge(edge):
-            raise ValueError("Graph does not have edge {edge}")
-        return self.nodes[edge[1]]['on_reference_path']
+    def on_reference_path(self, node_or_edge):
+        if type(node_or_edge) is tuple:
+            if not self.has_edge(node_or_edge):
+                raise ValueError("Graph does not have edge {edge}")
+            return self.nodes[node_or_edge[1]]['on_reference_path']
+        elif type(node_or_edge) is str:
+            return self.nodes[node_or_edge]['on_reference_path']
 
     def parent_in_tree(self, node: str) -> str:
         return next(self.reference_tree.predecessors(node))
+
+    def position(self, node: str) -> int:
+        return self.nodes[node]['position']
+
+    def right_position(self, node: str) -> int:
+        return self.nodes[node]['right_position']
+
+
 
     @classmethod
     def from_gfa(cls,
@@ -148,6 +167,7 @@ class PangenomeGraph(nx.DiGraph):
         if not nodeinfo_file:
             print("Computing positions")
             G.compute_binode_positions()
+            G.compute_binode_right_positions()
 
         if return_walks:
             return G, walks, walk_sample_names
@@ -202,13 +222,7 @@ class PangenomeGraph(nx.DiGraph):
         return self.representative_edge(edge) in self.reference_tree
 
     def is_back_edge(self, edge: tuple[str, str]) -> bool:
-        if self.is_inversion(edge):
-            return False
-        if self.is_in_tree(edge):
-            return False
-        positive_edge = edge if self.nodes[edge[0]]['direction'] == 1 else edge_complement(edge)
-        branch_point = self.edges[positive_edge]['branch_point']
-        return branch_point == positive_edge[1]
+        return self.edges[edge]['is_back_edge']
 
     def is_forward_edge(self, edge: tuple[str, str]) -> bool:
         if self.is_inversion(edge):
@@ -519,7 +533,7 @@ class PangenomeGraph(nx.DiGraph):
             file.write(','.join(attributes) + '\n')
 
             for node, data in self.nodes(data=True):
-                if self.is_terminal_node(node):
+                if self.is_terminal(node):
                     continue
                 file.write(f'{node},')
                 file.write(','.join([str(data[key]) for key in attributes]) + '\n')
@@ -664,6 +678,8 @@ class PangenomeGraph(nx.DiGraph):
             branch_point = branch_points[self.positive_node(u), self.positive_node(v)]
             if branch_point == v or branch_point == node_complement(u):
                 assert self.reference_tree.in_degree(branch_point) == 1
+                self.edges[edge]['is_back_edge'] = True
+                self.edges[edge_complement(edge)]['is_back_edge'] = True
                 branch_point = self.parent_in_tree(branch_point)
             self.edges[edge]['branch_point'] = branch_point
             self.edges[edge_complement(edge)]['branch_point'] = branch_point
@@ -971,8 +987,20 @@ class PangenomeGraph(nx.DiGraph):
                                                         len(self.nodes[u]['sequence']))
             self.nodes[node_complement(u)]['distance_from_reference'] = self.nodes[u]['distance_from_reference']
 
-
-
+    def compute_binode_right_positions(self):
+        positive_subgraph = self.subgraph([n for n, direction in self.nodes(data="direction") if direction == 1])
+        positive_subgraph = self.edge_subgraph([edge for edge in positive_subgraph.edges() if not self.is_back_edge(edge)])
+        order = nx.topological_sort(positive_subgraph)
+        for u in reversed(list(order)):
+            if self.on_reference_path(u):
+                self.nodes[u]['right_position'] = self.nodes[u]['position']
+                self.nodes[node_complement(u)]['right_position'] = self.nodes[node_complement(u)]['position']
+                continue
+            predecessor_positions = [self.right_position(v) for v in self.successors(u)]
+            self.nodes[u]['right_position'] = np.min(predecessor_positions)
+            self.nodes[node_complement(u)]['right_position'] = self.nodes[u]['right_position']
+        
+        
     def get_variants_at_interval(self, half_open_interval: tuple[int, int], exclude_root_edges=True) -> list:
         """
         Computes variant edges whose position intersects some interval, by iterating over all variant edges.
@@ -1084,6 +1112,43 @@ class PangenomeGraph(nx.DiGraph):
 
         # e.g., [(0,1), (0,2), (1,2), (1,3), (2,3)] with variant edges [(0,2), (1,3)]
         return 'interlocking'
+
+    def get_missing_variants(self, walks: list) -> list:
+
+        # walks must be in the positive direction
+        walk_start = []
+        walk_end = []
+        for walk in walks:
+            if self.direction(walk[0]) == 1:
+                walk_start.append(walk[0])
+                walk_end.append(walk[-1])
+            else:
+                walk_start.append(node_complement(walk[-1]))
+                walk_end.append(node_complement(walk[0]))
+            assert self.direction(walk_start[-1]) == 1 and self.direction(walk_end[-1]) == 1, \
+                f"Walk has an odd number of inversions"
+            assert self.position(walk_start[-1]) <= self.right_position(walk_end[-1])
+
+        # order walks and variants by position
+        source_positions = np.sort([self.right_position(node) for node in walk_end] + [self.position('+_terminus_+')])
+        sink_positions = np.sort([self.position(node) for node in walk_start] + [self.position('-_terminus_+')])
+        sorted_variant_edges = self.sorted_variant_edge(exclude_terminus=True)
+        sorted_variant_positions = [self.position(u) for u,_ in sorted_variant_edges]
+
+        result = []
+        for source, sink in zip(source_positions, sink_positions):
+            # indices of first and last variant edges u,v s.t. position of u in between source and sink
+            first = np.searchsorted(sorted_variant_positions, source, side='left')
+            last = np.searchsorted(sorted_variant_positions, sink, side='right')
+            for i in range(first, last):
+                if self.right_position(sorted_variant_edges[i][1]) <= sink:
+                    result.append(sorted_variant_edges[i])
+
+        return result
+
+
+
+
 
 
 
