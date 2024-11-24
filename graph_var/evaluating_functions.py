@@ -1,13 +1,13 @@
 import os.path
 
-from graph import PangenomeGraph
+from .graph import PangenomeGraph
+from .utils import _node_convert, load_graph_from_pkl, save_graph_to_pkl
 import re
 import numpy as np
 from tqdm import tqdm
 from intervaltree import Interval, IntervalTree
 from typing import List, Tuple, Union, Dict, Set, Optional
 from collections import defaultdict
-from utils import _node_convert, load_graph_from_pkl, save_graph_to_pkl
 import pandas as pd
 import ast
 
