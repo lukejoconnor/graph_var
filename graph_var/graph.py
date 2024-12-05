@@ -47,7 +47,7 @@ class PangenomeGraph(nx.DiGraph):
         if exclude_terminus:
             sorted_vars = [edge for edge in sorted_vars if not self.is_terminal(edge)]
         if exclude_position_zero:
-            sorted_vars = [edge for edge in sorted_vars if self.nodes[x[0]]['position'] != 0]
+            sorted_vars = [edge for edge in sorted_vars if self.nodes[edge[0]]['position'] != 0]
         sorted_vars = sorted(sorted_vars, key=lambda x: (self.nodes[x[0]]['position'], int(self.nodes[x[0]]["distance_from_reference"])))
         return sorted_vars
 
