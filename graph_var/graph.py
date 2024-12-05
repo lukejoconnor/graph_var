@@ -36,13 +36,13 @@ class PangenomeGraph(nx.DiGraph):
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
     @lru_cache
-    def sorted_variant_edge(self, exclude_terminus=True) -> list[str]:
+    def sorted_variant_edge(self, exclude_terminus=True, exclude_position_zero=False) -> list[str]:
+        sorted_vars = sorted(self.variant_edges, key=lambda x: (self.get_variant_position(x), int(self.nodes[x[0]]["distance_from_reference"])))
         if exclude_terminus:
-            return sorted([edge for edge in self.variant_edges if
-                           not self.is_terminal(edge)],
-                          key=lambda x: self.nodes[x[0]]['position'])
-        else:
-            return sorted(self.variant_edges, key=lambda x: self.nodes[x[0]]['position'])
+            sorted_vars = [edge for edge in sorted_vars if not self.is_terminal(edge)]
+        if exclude_position_zero:
+            sorted_vars = [edge for edge in sorted_vars if self.get_variant_position(edge) != 0]
+        return sorted_vars
 
     @property
     def sorted_biedge(self) -> list[str]:
@@ -410,6 +410,7 @@ class PangenomeGraph(nx.DiGraph):
                 if self.nodes[u]['direction'] != self.nodes[v]['direction']:
                     continue  # TODO how to handle inversions?
 
+                original_edge = (u, v)
                 if self.nodes[u]['direction'] == -1:
                     u, v = edge_complement((u, v))
                 edge = (u, v)
@@ -460,31 +461,25 @@ class PangenomeGraph(nx.DiGraph):
                 # 'sample1', 'sample2', ... 9 - end
                 AN = 0
                 for sample_name in sorted_sample_names:
-                    if edge in sample_genotype_dict[sample_name]:
-                        if str(sample_name).startswith("CHM"):
-                            count = str(sample_genotype_dict[sample_name][edge][:1])
+                    if str(sample_name).startswith("CHM"):
+                        count = str(sample_genotype_dict[sample_name].get(edge, '0')[:1])
+                        if count != '.':
+                            AN += 1
+                        allele_data_list.append(count)
+                    else:
+                        count_pair = str(sample_genotype_dict[sample_name].get(edge, '0|0'))
+                        for count in count_pair.split('|'):
                             if count != '.':
                                 AN += 1
-                            allele_data_list.append(count)
-                        else:
-                            count_pair = str(sample_genotype_dict[sample_name][edge])
-                            for count in count_pair.split('|'):
-                                if count != '.':
-                                    AN += 1
-                            allele_data_list.append(count_pair)
-                    else:
-                        if str(sample_name).startswith("CHM"):
-                            allele_data_list.append('.')
-                        else:
-                            allele_data_list.append('.|.')
+                        allele_data_list.append(count_pair)
 
                 if u not in node_to_line:
                     raise ValueError(f"Node {u} not in the tree")
 
                 INFO = (f'VT={self.identify_variant_type(edge)};'
                         f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
-                        f'RC={allele_count_dict[edge][0]};'
-                        f'AC={allele_count_dict[edge][1]};'
+                        f'RC={allele_count_dict[original_edge][0]};'
+                        f'AC={allele_count_dict[original_edge][1]};'
                         f'AN={AN};'
                         f'PU={int(self.nodes[u]["position"])};'
                         f'PV={int(self.nodes[v]["position"])};'
