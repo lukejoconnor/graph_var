@@ -8,7 +8,7 @@ from .search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
 from tqdm import tqdm
-
+from typing import Any, Union
 
 class PangenomeGraph(nx.DiGraph):
     reference_tree: nx.classes.digraph.DiGraph
@@ -76,11 +76,21 @@ class PangenomeGraph(nx.DiGraph):
     def parent_in_tree(self, node: str) -> str:
         return next(self.reference_tree.predecessors(node))
 
-    def position(self, node: str) -> int:
-        return self.nodes[node]['position']
+    def position(self, node_or_edge: Any) -> int:
+        if isinstance(node_or_edge, str):
+            return self.nodes[node_or_edge]['position']
+        elif isinstance(node_or_edge, tuple):
+            return self.position(node_or_edge[0]), self.position(node_or_edge[1])
+        else:
+            raise TypeError
 
-    def right_position(self, node: str) -> int:
-        return self.nodes[node]['right_position']
+    def right_position(self, node_or_edge: Any) -> int:
+        if isinstance(node_or_edge, str):
+            return self.nodes[node_or_edge]['right_position']
+        elif isinstance(node_or_edge, tuple):
+            return self.right_position(node_or_edge[0]), self.right_position(node_or_edge[1])
+        else:
+            raise TypeError
 
 
 
@@ -832,11 +842,12 @@ class PangenomeGraph(nx.DiGraph):
         return {k: concatenate_dicts(v) for k, v in sample_diploid_dict.items()}
 
 
-    def genotype(self, walk: list[str]) -> dict:
+    def genotype(self, walk: list[str], return_linear_coverage: bool = False) -> Union[dict, tuple[dict, tuple]]:
         """
         Computes the number of time that a walk visits each variant edge.
         :param walk: list of nodes
-        :return: dictionary of edge-count pairs
+        :param return_linear_coverage: if True, returns a tuple of the genotype dictionary and the min position/max right position of nodes on the walk
+        :return: dictionary of edge-count pairs, optionally the linear coverage
         """
 
         # Append start and end nodes to walk
@@ -845,12 +856,19 @@ class PangenomeGraph(nx.DiGraph):
         walk = start + walk + end
 
         genotype = {}
+        min_pos = inf
+        max_pos = -inf
         for e in zip(walk[:-1], walk[1:]):
             if not self.has_edge(*e):
                 raise ValueError(f"Specified list contains edge {e} which is not present in the graph")
 
             if not self.edges[e]['is_representative']:
                 e = edge_complement(e)
+
+            if not self.is_terminal(e[0]) and min(*self.position(e)) < min_pos:
+                min_pos = min(*self.position(e))
+            if not self.is_terminal(e[1]) and max(*self.right_position(e)) > max_pos:
+                max_pos = max(*self.right_position(e))
 
             if self.edges[e]['is_in_tree']:
                 continue
@@ -860,7 +878,7 @@ class PangenomeGraph(nx.DiGraph):
             else:
                 genotype[e] = 1
 
-        return genotype
+        return genotype, (min_pos, max_pos) if return_linear_coverage else genotype
 
     def count_edge_visits(self, genotype: dict) -> dict:
         """
@@ -1113,25 +1131,14 @@ class PangenomeGraph(nx.DiGraph):
         # e.g., [(0,1), (0,2), (1,2), (1,3), (2,3)] with variant edges [(0,2), (1,3)]
         return 'interlocking'
 
-    def get_missing_variants(self, walks: list) -> list:
-
-        # walks must be in the positive direction
-        walk_start = []
-        walk_end = []
-        for walk in walks:
-            if self.direction(walk[0]) == 1:
-                walk_start.append(walk[0])
-                walk_end.append(walk[-1])
-            else:
-                walk_start.append(node_complement(walk[-1]))
-                walk_end.append(node_complement(walk[0]))
-            assert self.direction(walk_start[-1]) == 1 and self.direction(walk_end[-1]) == 1, \
-                f"Walk has an odd number of inversions"
-            assert self.position(walk_start[-1]) <= self.right_position(walk_end[-1])
+    def get_missing_variants(self, linear_coverages: list[tuple]) -> list:
+        """
+        Computes variant edges that are missing from a list of genotypes where each genotype represents one of the walks of a haplotype.
+        :param genotypes: list of genotypes, where each genotype is a dictionary mapping variant edges to visit count"""
 
         # order walks and variants by position
-        source_positions = np.sort([self.right_position(node) for node in walk_end] + [self.position('+_terminus_+')])
-        sink_positions = np.sort([self.position(node) for node in walk_start] + [self.position('-_terminus_+')])
+        source_positions = np.sort([x[1] for x in linear_coverages] + [self.position('+_terminus_+')])
+        sink_positions = np.sort([x[0] for x in linear_coverages] + [self.position('-_terminus_+')])
         sorted_variant_edges = self.sorted_variant_edge(exclude_terminus=True)
         sorted_variant_positions = [self.position(u) for u,_ in sorted_variant_edges]
 
