@@ -37,11 +37,18 @@ class PangenomeGraph(nx.DiGraph):
 
     @lru_cache
     def sorted_variant_edge(self, exclude_terminus=True, exclude_position_zero=False) -> list[str]:
-        sorted_vars = sorted(self.variant_edges, key=lambda x: (self.get_variant_position(x), int(self.nodes[x[0]]["distance_from_reference"])))
+        # if exclude_terminus:
+        #     return sorted([edge for edge in self.variant_edges if
+        #                    not self.is_terminal(edge)],
+        #                   key=lambda x: self.nodes[x[0]]['position'])
+        # else:
+        #     return sorted(self.variant_edges, key=lambda x: self.nodes[x[0]]['position'])
+        sorted_vars = self.variant_edges
         if exclude_terminus:
             sorted_vars = [edge for edge in sorted_vars if not self.is_terminal(edge)]
         if exclude_position_zero:
-            sorted_vars = [edge for edge in sorted_vars if self.get_variant_position(edge) != 0]
+            sorted_vars = [edge for edge in sorted_vars if self.nodes[x[0]]['position'] != 0]
+        sorted_vars = sorted(sorted_vars, key=lambda x: (self.nodes[x[0]]['position'], int(self.nodes[x[0]]["distance_from_reference"])))
         return sorted_vars
 
     @property
