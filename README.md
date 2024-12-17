@@ -9,6 +9,27 @@
 ## Introduction
 This repository is very much a work in progress. If you use our code, please do reach out with questions and feedback.
 
+## Installation
+
+```bash
+git clone https://github.com/lukejoconnor/graph_var.git
+cd graph_var
+```
+
+You can install `graph-var` using either `uv` (recommended) or `pip`.
+
+### Using uv (Recommended)
+
+```bash
+uv venv; uv sync
+```
+
+### Using pip
+
+```bash
+pip install -e .
+```
+
 ## Usage
 ```python
 from graph import PangenomeGraph
