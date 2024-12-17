@@ -3,7 +3,7 @@ from linecache import cache
 from math import inf
 import networkx as nx
 import numpy as np
-from .utils import read_gfa, node_complement, edge_complement, sequence_complement, walk_complement
+from .utils import read_gfa, node_complement, edge_complement, sequence_complement, walk_complement, group_walks_by_name
 from .search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
@@ -36,13 +36,20 @@ class PangenomeGraph(nx.DiGraph):
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
     @lru_cache
-    def sorted_variant_edge(self, exclude_terminus=True) -> list[str]:
+    def sorted_variant_edge(self, exclude_terminus=True, exclude_position_zero=False) -> list[str]:
+        # if exclude_terminus:
+        #     return sorted([edge for edge in self.variant_edges if
+        #                    not self.is_terminal(edge)],
+        #                   key=lambda x: self.nodes[x[0]]['position'])
+        # else:
+        #     return sorted(self.variant_edges, key=lambda x: self.nodes[x[0]]['position'])
+        sorted_vars = self.variant_edges
         if exclude_terminus:
-            return sorted([edge for edge in self.variant_edges if
-                           not self.is_terminal(edge)],
-                          key=lambda x: self.nodes[x[0]]['position'])
-        else:
-            return sorted(self.variant_edges, key=lambda x: self.nodes[x[0]]['position'])
+            sorted_vars = [edge for edge in sorted_vars if not self.is_terminal(edge)]
+        if exclude_position_zero:
+            sorted_vars = [edge for edge in sorted_vars if self.nodes[edge[0]]['position'] != 0]
+        sorted_vars = sorted(sorted_vars, key=lambda x: (self.nodes[x[0]]['position'], int(self.nodes[x[0]]["distance_from_reference"])))
+        return sorted_vars
 
     @property
     def sorted_biedge(self) -> list[str]:
@@ -202,27 +209,40 @@ class PangenomeGraph(nx.DiGraph):
             [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
         )
 
-    def variant_edges_summary(self) -> dict:
-        """
-        Counts variant edges of different consequence.
-        """
-        summary_dict = dict()
-        for edge in tqdm(self.variant_edges):
-            if self.is_inversion(edge):
-                summary_dict['inversion'] = summary_dict.get('inversion', 0) + 1
-            if self.is_crossing_edge(edge):
-                summary_dict['crossing_edges'] = summary_dict.get('crossing_edges', 0) + 1
-            if self.is_back_edge(edge):
-                summary_dict['back_edges'] = summary_dict.get('back_edges', 0) + 1
-            if self.is_forward_edge(edge):
-                summary_dict['forward_edges'] = summary_dict.get('forward_edges', 0) + 1
-
-        summary_dict['total'] = len(self.variant_edges)
-        # Desired order of keys
-        key_order = ['inversion', 'crossing_edges', 'back_edges', 'forward_edges', 'total']
-        # Creating a new dict with the desired order
-        summary_dict = {key: summary_dict.get(key, 0) for key in key_order}
-        return summary_dict
+    def identify_variant_type(self, edge: tuple[str, str]) -> str:
+        var_type = None
+        if self.is_inversion(edge):
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'inversion'
+        if self.is_replacement(edge):
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'replacement'
+        if self.is_insertion(edge):
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'insertion'
+        if self.is_snp(edge):
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'snp'
+        if self.is_mnp(edge):
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'mnp'
+        if self.is_back_edge(edge):
+            if not self.is_inversion(edge):
+                if var_type is not None:
+                    raise KeyError(f'Variant, {edge}, has dual type.')
+                var_type = 'repeat'
+            else:
+                var_type = 'inversion_repeat'
+        if self.is_forward_edge(edge):
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'deletion'
+        return var_type
 
     def is_inversion(self, edge: tuple[str, str]) -> bool:
         u, v = edge
@@ -360,7 +380,7 @@ class PangenomeGraph(nx.DiGraph):
                   chr_name: str,
                   size_threshold: int = None,
                   walkup_limit: int = inf,
-                  exclude_terminus: bool = False) -> None:
+                  exclude_terminus: bool = True) -> None:
         """
         Writes the variant call format (vcf) file and the tree file. The vcf file contains the reference and
         alternative alleles, and the tree file contains the node names and corresponding sequences.
@@ -377,7 +397,11 @@ class PangenomeGraph(nx.DiGraph):
 
         meta_info = f'##fileformat=VCFv4.2\n'
         meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-        meta_info += f'##INFO=<ID=NR,Number=1,Type=String,Description="The reference allele if it is not on reference path.">\n'
+        meta_info += f'##INFO=<ID=VT,Number=1,Type=Integer,Description="Variant type.">\n'
+        meta_info += f'##INFO=<ID=DR,Number=1,Type=Integer,Description="Distance of node u, v from reference.">\n'
+        meta_info += f'##INFO=<ID=RC,Number=1,Type=String,Description="The REF allele count.">\n'
+        meta_info += f'##INFO=<ID=AC,Number=1,Type=String,Description="The ALT allele count.">\n'
+        meta_info += f'##INFO=<ID=AN,Number=1,Type=String,Description="The non-missing value count.">\n'
         meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
         meta_info += f'##INFO=<ID=LU,Number=1,Type=Integer,Description="Line number in the tree file">\n'
@@ -388,6 +412,7 @@ class PangenomeGraph(nx.DiGraph):
 
         order: list = self.write_tree(tree_filename)
         node_to_line = {node: line for line, node in enumerate(order)}
+        allele_count_dict = self.allele_count()
 
         with open(vcf_filename, 'w') as file:
             # Write the header row
@@ -402,6 +427,7 @@ class PangenomeGraph(nx.DiGraph):
                 if self.nodes[u]['direction'] != self.nodes[v]['direction']:
                     continue  # TODO how to handle inversions?
 
+                original_edge = (u, v)
                 if self.nodes[u]['direction'] == -1:
                     u, v = edge_complement((u, v))
                 edge = (u, v)
@@ -424,51 +450,62 @@ class PangenomeGraph(nx.DiGraph):
 
                 allele_data_list = []
 
-                if self.nodes[v]['on_reference_path'] == 1:
-                    new_ref = '.'
-                else:
-                    new_ref = ref
-                    ref = '.'
+                # if self.nodes[v]['on_reference_path'] == 1:
+                #     new_ref = '.'
+                # else:
+                #     new_ref = ref
+                #     ref = '.'
 
-                # 'CHROM'
+                # 'CHROM' 0
                 allele_data_list.append(chr_name)
-                # 'POS'
+                # 'POS' 1
                 allele_data_list.append(str(self.get_variant_position(edge)))
-                # 'ID'
+                # 'ID' 2
                 allele_data_list.append('.')
-                # 'REF'
+                # 'REF' 3
                 allele_data_list.append(ref)
-                # 'ALT'
+                # 'ALT' 4
                 allele_data_list.append(alt)
-                # 'QUAL'
+                # 'QUAL' 5
                 allele_data_list.append('60')
-                # 'FILTER'
+                # 'FILTER' 6
                 allele_data_list.append('PASS')
-                # 'INFO'
-                if u not in node_to_line:
-                    print(u, list(node_to_line.items()))
-
-                allele_data_list.append(f'NR={new_ref};'
-                                        f'PU={int(self.nodes[u]["position"])};'
-                                        f'PV={int(self.nodes[v]["position"])};'
-                                        f'LU={int(node_to_line[u])};'
-                                        f'LV={int(node_to_line[v])};'
-                                        f'RL={int(ref_limit)};'
-                                        f'AL={int(alt_limit)};')
-                # 'FORMAT'
+                # 'INFO' 7
+                allele_data_list.append(None)
+                # 'FORMAT' 8
                 allele_data_list.append('GT')
 
+                # 'sample1', 'sample2', ... 9 - end
+                AN = 0
                 for sample_name in sorted_sample_names:
-                    if edge in sample_genotype_dict[sample_name]:
-                        if str(sample_name).startswith("CHM"):
-                            allele_data_list.append(str(sample_genotype_dict[sample_name][edge][:1]))
-                        else:
-                            allele_data_list.append(str(sample_genotype_dict[sample_name][edge]))
+                    if str(sample_name).startswith("CHM"):
+                        count = str(sample_genotype_dict[sample_name].get(edge, '0')[:1])
+                        if count != '.':
+                            AN += 1
+                        allele_data_list.append(count)
                     else:
-                        if str(sample_name).startswith("CHM"):
-                            allele_data_list.append('0')
-                        else:
-                            allele_data_list.append('0|0')
+                        count_pair = str(sample_genotype_dict[sample_name].get(edge, '0|0'))
+                        for count in count_pair.split('|'):
+                            if count != '.':
+                                AN += 1
+                        allele_data_list.append(count_pair)
+
+                if u not in node_to_line:
+                    raise ValueError(f"Node {u} not in the tree")
+
+                INFO = (f'VT={self.identify_variant_type(edge)};'
+                        f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
+                        f'RC={allele_count_dict[original_edge][0]};'
+                        f'AC={allele_count_dict[original_edge][1]};'
+                        f'AN={AN};'
+                        f'PU={int(self.nodes[u]["position"])};'
+                        f'PV={int(self.nodes[v]["position"])};'
+                        f'LU={int(node_to_line[u])};'
+                        f'LV={int(node_to_line[v])};'
+                        f'RL={int(ref_limit)};'
+                        f'AL={int(alt_limit)};')
+
+                allele_data_list[7] = INFO
 
                 file.write('\t'.join(allele_data_list) + '\n')
 
@@ -801,7 +838,7 @@ class PangenomeGraph(nx.DiGraph):
         else:
             return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
 
-    def integrate_genotype_by_sample(self, sample_names, walks):
+    def integrate_genotype_by_sample(self, sample_names, walks, missing_variant_dict: dict = None) -> dict:
         sample_haplotype_dict = defaultdict(Counter)
         sample_diploid_dict = defaultdict(list)
 
@@ -828,14 +865,22 @@ class PangenomeGraph(nx.DiGraph):
             all_keys = set(dict_1.keys()).union(set(dict_2.keys()))
 
             for key in all_keys:
-                if key in dict_1 and key in dict_2:
-                    result_dict[key] = f"{dict_1[key]}|{dict_2[key]}"
-                elif key in dict_1:
-                    result_dict[key] = f"{dict_1[key]}|0"
-                elif key in dict_2:
-                    result_dict[key] = f"0|{dict_2[key]}"
+                if missing_variant_dict is not None:
+                    if len(dicts) == 1:
+                        sample_name_1 = key + '_0'
+                        sample_name_2 = None
+                    elif len(dicts) == 2:
+                        sample_name_1 = key + '_1'
+                        sample_name_2 = key + '_2'
+                    else:
+                        raise ValueError("This should never happen")
+
+                    temp = (f"{dict_1.get(key, 0) if sample_name_1 not in missing_variant_dict else '.'}|"
+                            f"{dict_2.get(key, 0) if sample_name_2 not in missing_variant_dict else '.'}")
                 else:
-                    raise ValueError("This should never happen")
+                    temp = f"{dict_1.get(key, 0)}|{dict_2.get(key, 0)}"
+
+                result_dict[key] = temp
 
             return result_dict
 
@@ -1130,6 +1175,17 @@ class PangenomeGraph(nx.DiGraph):
 
         # e.g., [(0,1), (0,2), (1,2), (1,3), (2,3)] with variant edges [(0,2), (1,3)]
         return 'interlocking'
+
+    def integrate_missing_variants_by_sample(self, sample_names, walks):
+        sample_haplotype_dict = dict()
+        sample_walk_dict = group_walks_by_name(walks, sample_names)
+
+        for sample_name, walks in sample_walk_dict.items():
+            missing_list = self.get_missing_variants(walks)
+            sample_haplotype_dict[sample_name] = missing_list
+
+        return sample_haplotype_dict
+
 
     def get_missing_variants(self, linear_coverages: list[tuple]) -> list:
         """
