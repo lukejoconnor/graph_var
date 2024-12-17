@@ -85,7 +85,7 @@ ipython_config.py
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
 #   intended to run in multiple environments; otherwise, check them in:
-# .python-version
+.python-version
 
 # pipenv
 #   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
@@ -152,6 +152,18 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# UV
+uv.lock
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
@@ -161,6 +173,5 @@ cython_debug/
 
 # Luke
 luke/
-*.iml
 *.xml
-*.xml
+/.idea
