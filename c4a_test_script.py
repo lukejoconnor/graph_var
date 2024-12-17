@@ -2,7 +2,7 @@ from graph import PangenomeGraph
 
 def main():
     # Read a .gfa file
-    gfa_path = "c4a_with_inversion.gfa"
+    gfa_path = "data/c4a_with_inversion.gfa"
     reference_path_index = 1
     G, walks, walk_sample_names = PangenomeGraph.from_gfa(gfa_path,
                                                     return_walks=True, compressed=False)
