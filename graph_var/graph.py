@@ -416,10 +416,15 @@ class PangenomeGraph(nx.DiGraph):
 
         with open(vcf_filename, 'w') as file:
             # Write the header row
-            sample_genotype_dict = self.integrate_genotype_by_sample(sample_names, walks)
-            sample_genotype_dict.pop('GRCh38')
-            sorted_sample_names = sorted(sample_genotype_dict.keys())
-            header_names = list(self.vcf_attribute_names) + sorted_sample_names
+            sample_walks_dict = group_walks_by_name(walks, sample_names)
+            sample_data_dict = {sample_name: self.genotype_and_linear_coverage_by_sample(walks) for sample_name, walks in sample_walks_dict.items()}
+            sample_missing_dict = {sample_name: set(self.get_missing_variants(data[1])) for sample_name, data in sample_data_dict.items()}
+            #sample_missing_dict = {sample_name: set() for sample_name, data in sample_data_dict.items()}
+
+            subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys() if not sample_name.startswith("GRCh38")})
+            #subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys()})
+
+            header_names = list(self.vcf_attribute_names) + subject_ids
             file.write(meta_info)
             file.write('#'+'\t'.join(header_names) + '\n')
 
@@ -477,18 +482,21 @@ class PangenomeGraph(nx.DiGraph):
 
                 # 'sample1', 'sample2', ... 9 - end
                 AN = 0
-                for sample_name in sorted_sample_names:
-                    if str(sample_name).startswith("CHM"):
-                        count = str(sample_genotype_dict[sample_name].get(edge, '0')[:1])
+                for sample_name in subject_ids:
+                    if sample_name.startswith(("CHM", "GRCh")):
+                        haplotype_name = sample_name+'_0'
+                        counts = f"{sample_data_dict[haplotype_name][0].get(original_edge, 0) if original_edge not in sample_missing_dict[haplotype_name] else '.'}"
+                        allele_data_list.append(counts)
+                    else:
+                        haplotype1_name = sample_name + '_1'
+                        haplotype2_name = sample_name + '_2'
+                        counts = (f"{sample_data_dict[haplotype1_name][0].get(original_edge, 0) if original_edge not in sample_missing_dict[haplotype1_name] else '.'}|"
+                                      f"{sample_data_dict[haplotype2_name][0].get(original_edge, 0) if original_edge not in sample_missing_dict[haplotype2_name] else '.'}")
+                        allele_data_list.append(counts)
+
+                    for count in counts.split('|'):
                         if count != '.':
                             AN += 1
-                        allele_data_list.append(count)
-                    else:
-                        count_pair = str(sample_genotype_dict[sample_name].get(edge, '0|0'))
-                        for count in count_pair.split('|'):
-                            if count != '.':
-                                AN += 1
-                        allele_data_list.append(count_pair)
 
                 if u not in node_to_line:
                     raise ValueError(f"Node {u} not in the tree")
@@ -838,53 +846,25 @@ class PangenomeGraph(nx.DiGraph):
         else:
             return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
 
-    def integrate_genotype_by_sample(self, sample_names, walks, missing_variant_dict: dict = None) -> dict:
-        sample_haplotype_dict = defaultdict(Counter)
-        sample_diploid_dict = defaultdict(list)
+    def genotype_and_linear_coverage_by_sample(self, walks) -> tuple[dict, list]:
+        """
+        Integrates the genotype of each sample from the genotype of each walk.
+        :param walks: list of walks for each sample
+        :return:
+        """
+        sample_haplotype_counter = dict()
+        linear_coverages = []
 
-        for sample_name, walk in zip(sample_names, walks):
-            walk_haplotype_dict = self.genotype(walk)
-            sample_haplotype_dict[sample_name].update(walk_haplotype_dict)
-
-        for k, v in sample_haplotype_dict.items():
-            sample_name, _ = k.split('_')
-            sample_diploid_dict[sample_name].append(v)
-
-        def concatenate_dicts(dicts: list[Counter]):
-            result_dict = dict()
-
-            dict_1 = dicts[0]
-
-            if len(dicts) == 1:
-                dict_2 = dict()
-            elif len(dicts) == 2:
-                dict_2 = dicts[1]
-            else:
-                raise ValueError("This should never happen")
-
-            all_keys = set(dict_1.keys()).union(set(dict_2.keys()))
-
-            for key in all_keys:
-                if missing_variant_dict is not None:
-                    if len(dicts) == 1:
-                        sample_name_1 = key + '_0'
-                        sample_name_2 = None
-                    elif len(dicts) == 2:
-                        sample_name_1 = key + '_1'
-                        sample_name_2 = key + '_2'
-                    else:
-                        raise ValueError("This should never happen")
-
-                    temp = (f"{dict_1.get(key, 0) if sample_name_1 not in missing_variant_dict else '.'}|"
-                            f"{dict_2.get(key, 0) if sample_name_2 not in missing_variant_dict else '.'}")
+        for walk in walks:
+            walk_haplotype_dict, linear_coverage = self.genotype(walk, return_linear_coverage=True)
+            for edge, count in walk_haplotype_dict.items():
+                if edge in sample_haplotype_counter:
+                    sample_haplotype_counter[edge] += count
                 else:
-                    temp = f"{dict_1.get(key, 0)}|{dict_2.get(key, 0)}"
+                    sample_haplotype_counter[edge] = count
+            linear_coverages.append(linear_coverage)
 
-                result_dict[key] = temp
-
-            return result_dict
-
-        return {k: concatenate_dicts(v) for k, v in sample_diploid_dict.items()}
+        return sample_haplotype_counter, linear_coverages
 
 
     def genotype(self, walk: list[str], return_linear_coverage: bool = False) -> Union[dict, tuple[dict, tuple]]:
@@ -923,7 +903,7 @@ class PangenomeGraph(nx.DiGraph):
             else:
                 genotype[e] = 1
 
-        return genotype, (min_pos, max_pos) if return_linear_coverage else genotype
+        return (genotype, (min_pos, max_pos)) if return_linear_coverage else genotype
 
     def count_edge_visits(self, genotype: dict) -> dict:
         """
@@ -1176,15 +1156,15 @@ class PangenomeGraph(nx.DiGraph):
         # e.g., [(0,1), (0,2), (1,2), (1,3), (2,3)] with variant edges [(0,2), (1,3)]
         return 'interlocking'
 
-    def integrate_missing_variants_by_sample(self, sample_names, walks):
-        sample_haplotype_dict = dict()
-        sample_walk_dict = group_walks_by_name(walks, sample_names)
-
-        for sample_name, walks in sample_walk_dict.items():
-            missing_list = self.get_missing_variants(walks)
-            sample_haplotype_dict[sample_name] = missing_list
-
-        return sample_haplotype_dict
+    # def integrate_missing_variants_by_sample(self, sample_names, walks):
+    #     sample_haplotype_dict = dict()
+    #     sample_walk_dict = group_walks_by_name(walks, sample_names)
+    #
+    #     for sample_name, walks in sample_walk_dict.items():
+    #         missing_list = self.get_missing_variants(walks)
+    #         sample_haplotype_dict[sample_name] = missing_list
+    #
+    #     return sample_haplotype_dict
 
 
     def get_missing_variants(self, linear_coverages: list[tuple]) -> list:
