@@ -1039,8 +1039,8 @@ class PangenomeGraph(nx.DiGraph):
                 self.nodes[u]['right_position'] = self.nodes[u]['position']
                 self.nodes[node_complement(u)]['right_position'] = self.nodes[node_complement(u)]['position']
                 continue
-            predecessor_positions = [self.right_position(v) for v in self.successors(u)]
-            self.nodes[u]['right_position'] = np.min(predecessor_positions)
+            successor_positions = [self.right_position(v) for v in self.successors(u)]
+            self.nodes[u]['right_position'] = np.min(successor_positions)
             self.nodes[node_complement(u)]['right_position'] = self.nodes[u]['right_position']
         
         
@@ -1174,9 +1174,9 @@ class PangenomeGraph(nx.DiGraph):
 
         # order walks and variants by position
         source_positions = np.sort([x[1] for x in linear_coverages] + [self.position('+_terminus_+')])
-        sink_positions = np.sort([x[0] for x in linear_coverages] + [self.position('-_terminus_+')])
+        sink_positions = np.sort([x[0] for x in linear_coverages] + [self.right_position('-_terminus_+')])
         sorted_variant_edges = self.sorted_variant_edge(exclude_terminus=True)
-        sorted_variant_positions = [self.position(u) for u,_ in sorted_variant_edges]
+        sorted_variant_positions = [min(*self.position(e)) for e in sorted_variant_edges]
 
         result = []
         for source, sink in zip(source_positions, sink_positions):
@@ -1184,7 +1184,7 @@ class PangenomeGraph(nx.DiGraph):
             first = np.searchsorted(sorted_variant_positions, source, side='left')
             last = np.searchsorted(sorted_variant_positions, sink, side='right')
             for i in range(first, last):
-                if self.right_position(sorted_variant_edges[i][1]) <= sink:
+                if max(*self.right_position(sorted_variant_edges[i])) <= sink:
                     result.append(sorted_variant_edges[i])
 
         return result
