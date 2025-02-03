@@ -370,7 +370,9 @@ class PangenomeGraph(nx.DiGraph):
                   chr_name: str,
                   size_threshold: int = None,
                   walkup_limit: int = inf,
-                  exclude_terminus: bool = True) -> None:
+                  exclude_terminus: bool = True,
+                  check_degenerate: bool = False,
+                  ) -> None:
         """
         Writes the variant call format (vcf) file and the tree file. The vcf file contains the reference and
         alternative alleles, and the tree file contains the node names and corresponding sequences.
@@ -381,6 +383,8 @@ class PangenomeGraph(nx.DiGraph):
         :param chr_name: the chromosome name in the first column of output vcf file
         :param size_threshold: the truncation length of ref and alt sequence
         :param walkup_limit: the maximum length of the walk up to the branch point
+        :param exclude_terminus: whether to exclude the terminus nodes
+        :param check_degenerate: whether to exclude variants whose ref and alt alleles are identical
         :return:
         """
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
@@ -438,6 +442,10 @@ class PangenomeGraph(nx.DiGraph):
                     ref = ref_allele
                     alt = alt_allele
 
+                if check_degenerate:
+                    if ref_allele == alt_allele:
+                        continue
+                
                 allele_data_list = []
 
                 # if self.nodes[v]['on_reference_path'] == 1:
