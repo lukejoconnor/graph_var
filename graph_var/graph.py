@@ -222,12 +222,9 @@ class PangenomeGraph(nx.DiGraph):
                 raise KeyError(f'Variant, {edge}, has dual type.')
             var_type = 'mnp'
         if self.is_back_edge(edge):
-            if not self.is_inversion(edge):
-                if var_type is not None:
-                    raise KeyError(f'Variant, {edge}, has dual type.')
-                var_type = 'repeat'
-            else:
-                var_type = 'inversion_repeat'
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'repeat'
         if self.is_forward_edge(edge):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
@@ -242,6 +239,8 @@ class PangenomeGraph(nx.DiGraph):
         return self.representative_edge(edge) in self.reference_tree
 
     def is_back_edge(self, edge: tuple[str, str]) -> bool:
+        if self.is_inversion(edge):
+            return False
         return self.edges[edge]['is_back_edge']
 
     def is_forward_edge(self, edge: tuple[str, str]) -> bool:
@@ -418,11 +417,11 @@ class PangenomeGraph(nx.DiGraph):
             file.write('#'+'\t'.join(header_names) + '\n')
 
             for u, v in tqdm(self.sorted_variant_edge(exclude_terminus=exclude_terminus)):
-                if self.nodes[u]['direction'] != self.nodes[v]['direction']:
-                    continue  # TODO how to handle inversions?
+                # if self.nodes[u]['direction'] != self.nodes[v]['direction']:
+                #     continue  # TODO how to handle inversions?
 
                 original_edge = (u, v)
-                if self.nodes[u]['direction'] == -1:
+                if self.nodes[u]['direction'] == -1 and self.nodes[v]['direction'] == -1:
                     u, v = edge_complement((u, v))
                 edge = (u, v)
 
@@ -488,9 +487,6 @@ class PangenomeGraph(nx.DiGraph):
                                 AN += 1
                         allele_data_list.append(count_pair)
 
-                if u not in node_to_line:
-                    raise ValueError(f"Node {u} not in the tree")
-
                 INFO = (f'VT={self.identify_variant_type(edge)};'
                         f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
                         f'RC={allele_count_dict[original_edge][0]};'
@@ -498,8 +494,8 @@ class PangenomeGraph(nx.DiGraph):
                         f'AN={AN};'
                         f'PU={int(self.nodes[u]["position"])};'
                         f'PV={int(self.nodes[v]["position"])};'
-                        f'LU={int(node_to_line[u])};'
-                        f'LV={int(node_to_line[v])};'
+                        f'LU={int(node_to_line[self.positive_node(u)])};'
+                        f'LV={int(node_to_line[self.positive_node(v)])};'
                         f'RL={int(ref_limit)};'
                         f'AL={int(alt_limit)};')
 
