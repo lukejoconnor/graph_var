@@ -234,12 +234,9 @@ class PangenomeGraph(nx.DiGraph):
                 raise KeyError(f'Variant, {edge}, has dual type.')
             var_type = 'mnp'
         if self.is_back_edge(edge):
-            if not self.is_inversion(edge):
-                if var_type is not None:
-                    raise KeyError(f'Variant, {edge}, has dual type.')
-                var_type = 'repeat'
-            else:
-                var_type = 'inversion_repeat'
+            if var_type is not None:
+                raise KeyError(f'Variant, {edge}, has dual type.')
+            var_type = 'repeat'
         if self.is_forward_edge(edge):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
@@ -254,6 +251,8 @@ class PangenomeGraph(nx.DiGraph):
         return self.representative_edge(edge) in self.reference_tree
 
     def is_back_edge(self, edge: tuple[str, str]) -> bool:
+        if self.is_inversion(edge):
+            return False
         return self.edges[edge]['is_back_edge']
 
     def is_forward_edge(self, edge: tuple[str, str]) -> bool:
@@ -382,7 +381,9 @@ class PangenomeGraph(nx.DiGraph):
                   chr_name: str,
                   size_threshold: int = None,
                   walkup_limit: int = inf,
-                  exclude_terminus: bool = True) -> None:
+                  exclude_terminus: bool = True,
+                  check_degenerate: bool = False,
+                  ) -> None:
         """
         Writes the variant call format (vcf) file and the tree file. The vcf file contains the reference and
         alternative alleles, and the tree file contains the node names and corresponding sequences.
@@ -393,6 +394,8 @@ class PangenomeGraph(nx.DiGraph):
         :param chr_name: the chromosome name in the first column of output vcf file
         :param size_threshold: the truncation length of ref and alt sequence
         :param walkup_limit: the maximum length of the walk up to the branch point
+        :param exclude_terminus: whether to exclude the terminus nodes
+        :param check_degenerate: whether to exclude variants whose ref and alt alleles are identical
         :return:
         """
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
@@ -447,7 +450,7 @@ class PangenomeGraph(nx.DiGraph):
                 #     continue
 
                 original_edge = (u, v)
-                if self.nodes[u]['direction'] == -1:
+                if self.nodes[u]['direction'] == -1 and self.nodes[v]['direction'] == -1:
                     u, v = edge_complement((u, v))
                 edge = (u, v)
 
@@ -466,6 +469,10 @@ class PangenomeGraph(nx.DiGraph):
                 else:
                     ref = ref_allele
                     alt = alt_allele
+
+                if check_degenerate:
+                    if ref_allele == alt_allele:
+                        continue
 
                 allele_data_list = []
 
@@ -529,16 +536,6 @@ class PangenomeGraph(nx.DiGraph):
                         if count != '.:.:.':
                             AN += 1
 
-                if u not in node_to_line:
-                    LU = '.'
-                else:
-                    LU = int(node_to_line[u])
-
-                if v not in node_to_line:
-                    LV = '.'
-                else:
-                    LV = int(node_to_line[v])
-
                 INFO = (f'OR={new_ref};'
                         f'VT={self.identify_variant_type(edge)};'
                         f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
@@ -547,8 +544,8 @@ class PangenomeGraph(nx.DiGraph):
                         f'AN={AN};'
                         f'PU={int(self.nodes[u]["position"])};'
                         f'PV={int(self.nodes[v]["position"])};'
-                        f'LU={LU};'
-                        f'LV={LV};'
+                        f'LU={int(node_to_line[self.positive_node(u)])};'
+                        f'LV={int(node_to_line[self.positive_node(v)])};'
                         f'RL={int(ref_limit)};'
                         f'AL={int(alt_limit)};')
 

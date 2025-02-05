@@ -147,3 +147,36 @@ def group_walks_by_name(walks: list, names: list) -> dict:
         walks_by_name[name].append(walk)
     
     return walks_by_name
+
+def nearly_identical_alleles(allele1: str, allele2: str):
+    """
+    Returns True if two sequences differ by at most one base.
+
+    Args:
+        allele1: String representation of an allele
+        allele2: String representation of an allele
+
+    Returns:
+        True if the alleles are nearly identical, False otherwise
+    """
+    length_difference = len(allele1) - len(allele2)
+    if abs(length_difference) > 1:
+        return False
+    mismatches = 0
+    idx1, idx2 = 0, 0
+    while idx1 < len(allele1) and idx2 < len(allele2):
+        base1 = allele1[idx1]
+        base2 = allele2[idx2]
+        if base1 == base2:
+            idx1 += 1
+            idx2 += 1
+            continue
+        mismatches += 1
+        if mismatches > 1:
+            return False
+        if length_difference >= 0:  # SNP or deletion
+            idx1 += 1
+        if length_difference <= 0:  # SNP or insertion
+            idx2 += 1
+
+    return True
