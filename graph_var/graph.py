@@ -35,28 +35,17 @@ class PangenomeGraph(nx.DiGraph):
         edges = [edge_with_data for edge_with_data in self.edges(data=True) if edge_with_data[2]['is_representative']]
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
-    @lru_cache
-    def sorted_variant_edge(self, exclude_terminus=True, exclude_position_zero=False) -> list[str]:
-        # if exclude_terminus:
-        #     return sorted([edge for edge in self.variant_edges if
-        #                    not self.is_terminal(edge)],
-        #                   key=lambda x: self.nodes[x[0]]['position'])
-        # else:
-        #     return sorted(self.variant_edges, key=lambda x: self.nodes[x[0]]['position'])
-        sorted_vars = self.variant_edges
+    def sorted_variant_edges(self, exclude_terminus=True) -> list[str]:
+        
         if exclude_terminus:
-            sorted_vars = [edge for edge in sorted_vars if not self.is_terminal(edge)]
-        if exclude_position_zero:
-            sorted_vars = [edge for edge in sorted_vars if self.nodes[edge[0]]['position'] != 0]
+            sorted_vars = [edge for edge in self.variant_edges if not self.is_terminal(edge)]
+        else:
+            sorted_vars = self.variant_edges
+
         sorted_vars = sorted(sorted_vars, key=lambda x:
                       (self.nodes[self.positive_variant_edge(x)[0]]['position'],
                        int(self.nodes[self.positive_variant_edge(x)[0]]["distance_from_reference"])))
         return sorted_vars
-
-    @property
-    def sorted_biedge(self) -> list[str]:
-        edges = [edge_with_data for edge_with_data in self.edges(data=True)]
-        return sorted(edges, key=lambda edge: edge[2]['index'])
 
     @property
     def biedge_attribute_names(self) -> tuple:
@@ -77,9 +66,11 @@ class PangenomeGraph(nx.DiGraph):
     def on_reference_path(self, node_or_edge):
         if type(node_or_edge) is tuple:
             if not self.has_edge(node_or_edge):
-                raise ValueError("Graph does not have edge {edge}")
+                raise ValueError("Graph does not have edge {node_or_edge}")
             return self.nodes[node_or_edge[1]]['on_reference_path']
         elif type(node_or_edge) is str:
+            if not self.has_node(node_or_edge):
+                raise ValueError("Graph does not have node {node_or_edge}")
             return self.nodes[node_or_edge]['on_reference_path']
 
     def parent_in_tree(self, node: str) -> str:
@@ -100,8 +91,6 @@ class PangenomeGraph(nx.DiGraph):
             return self.right_position(node_or_edge[0]), self.right_position(node_or_edge[1])
         else:
             raise TypeError
-
-
 
     @classmethod
     def from_gfa(cls,
@@ -445,7 +434,7 @@ class PangenomeGraph(nx.DiGraph):
             file.write(meta_info)
             file.write('#'+'\t'.join(header_names) + '\n')
 
-            for u, v in tqdm(self.sorted_variant_edge(exclude_terminus=exclude_terminus)):
+            for u, v in tqdm(self.sorted_variant_edges(exclude_terminus=exclude_terminus)):
                 # if self.nodes[u]['direction'] != self.nodes[v]['direction']:
                 #     continue
 
@@ -1028,7 +1017,7 @@ class PangenomeGraph(nx.DiGraph):
             ref_allele, alt_allele, _, _ = self.ref_alt_alleles(variant_edge)
             return len(ref_allele) + len(alt_allele)
 
-        return {e: _allele_length(e) for e in self.sorted_variant_edge(exclude_terminus=True)}
+        return {e: _allele_length(e) for e in self.sorted_variant_edges(exclude_terminus=True)}
 
     def allele_count(self) -> dict:
         """
@@ -1036,6 +1025,7 @@ class PangenomeGraph(nx.DiGraph):
         edge (u,v) and the corresponding reference tree edge (w, v).
         :return: dictionary mapping variant edges to (ref_count, alt_count) pairs
         """
+        # TODO handles inversions correctly?
         def reference_tree_edge(variant_edge):
             _, v = self.positive_variant_edge(variant_edge)
             if self.is_inversion(variant_edge):
@@ -1044,7 +1034,7 @@ class PangenomeGraph(nx.DiGraph):
             return w, v
 
         return {e: (self.edges[reference_tree_edge(e)]['weight'], self.edges[e]['weight'])
-                for e in self.sorted_variant_edge(exclude_terminus=True)}
+                for e in self.sorted_variant_edges(exclude_terminus=True)}
 
     def compute_binode_positions(self):
         """
@@ -1129,9 +1119,8 @@ class PangenomeGraph(nx.DiGraph):
         if any([self.is_back_edge(edge) for edge in variants]):
             return "Not triallelic"
 
-        if self.is_inversion(variants[0]):
-            assert self.is_inversion(variants[1]), \
-                "Found an inversion and a non-inversion in the variant list"
+        if self.is_inversion(variants[0]) != self.is_inversion(variants[1]):
+            "Found an inversion and a non-inversion in the variant list"
 
         endpoint_nodes = [node + '_+' for node in endpoint_binodes]
         endpoint_nodes += [node + '_-' for node in endpoint_binodes]
@@ -1217,7 +1206,7 @@ class PangenomeGraph(nx.DiGraph):
         # order walks and variants by position
         source_positions = np.sort([x[1] for x in linear_coverages] + [self.position('+_terminus_+')])
         sink_positions = np.sort([x[0] for x in linear_coverages] + [self.right_position('-_terminus_+')])
-        sorted_variant_edges = self.sorted_variant_edge(exclude_terminus=True)
+        sorted_variant_edges = self.sorted_variant_edges(exclude_terminus=True)
         sorted_variant_positions = [min(*self.position(e)) for e in sorted_variant_edges]
 
         result = []
