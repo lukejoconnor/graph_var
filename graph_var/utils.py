@@ -148,7 +148,7 @@ def group_walks_by_name(walks: list, names: list) -> dict:
     
     return walks_by_name
 
-def nearly_identical_alleles(allele1: str, allele2: str):
+def nearly_identical_alleles(allele1: str, allele2: str, threshold: int = 10):
     """
     Returns True if two sequences differ by at most one base.
     
@@ -159,6 +159,9 @@ def nearly_identical_alleles(allele1: str, allele2: str):
     Returns:
         True if the alleles are nearly identical, False otherwise
     """
+    if len(allele1) + len(allele2) < 2 * threshold:
+        return False
+
     length_difference = len(allele1) - len(allele2)
     if abs(length_difference)> 1:
         return False

@@ -69,14 +69,16 @@ def get_interval_tree_from_bed(bed_file: str, chr_name: str) -> IntervalTree:
             interval_tree.add(Interval(start, end))
     return interval_tree
 
-def read_vcf_to_dataframe(vcf_path: str) -> pd.DataFrame:
+def read_vcf_to_dataframe(vcf_path: str, return_meta_info: bool = False):
     records = []
+    meta_info = []
 
     # Loop through each record in the VCF file
     with open(vcf_path, 'r') as vcf_file:
         header = None
         for line in vcf_file:
             if line.startswith('##'):
+                meta_info.append(line)
                 continue
 
             if line.startswith('#'):
@@ -90,7 +92,16 @@ def read_vcf_to_dataframe(vcf_path: str) -> pd.DataFrame:
 
     # Convert to DataFrame
     df = pd.DataFrame(records)
-    return df
+
+    if return_meta_info:
+        return df, meta_info
+    else:
+        return df
+
+def get_info_dict(info_str: str) -> Dict:
+    info_list = info_str.split(';')
+    info_dict = {x.split('=')[0]: x.split('=')[1] for x in info_list if x != ''}
+    return info_dict
 
 def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
     with open(filename, 'wb') as gfa_file:
@@ -461,41 +472,3 @@ def write_bubble_summary_result(gfa_path: str,
 
     count_summary_df.to_csv(os.path.join(output_dir, bubble_var_count_path), sep='\t')
 
-
-
-
-"""
-def construct_intervaltree_variant_edges(G: PangenomeGraph) -> IntervalTree:
-    interval_tree = IntervalTree()
-    for edge in G.variant_edges:
-        u, v = edge
-        positions = [G.nodes[u]['position'], G.nodes[v]['position']]
-        x, y = min(positions), max(positions)
-
-        interval_tree.add(Interval(x, y, edge))
-
-    return interval_tree
-
-def get_variants_from_intervaltree(half_open_interval: Union[Tuple[int, int], List[Tuple[int, int]]],
-                                   vertice_bubble_dict: dict,
-                                   exclude_root_edges=True) -> dict:
-    result = {}
-
-    if isinstance(half_open_interval, tuple):
-        half_open_interval = [half_open_interval]
-    elif isinstance(half_open_interval, list):
-        pass
-    else:
-        raise ValueError("Invalid input type for half_open_interval")
-
-    for start, end in half_open_interval:
-        positions = [self.nodes[u]['position'], self.nodes[v]['position']]
-        x, y = min(positions), max(positions)
-        if x < end and y >= start:
-            result.append(edge)
-
-    if exclude_root_edges:
-        result = [(u, v) for u, v in result if u != '+_terminus_+' and v != '+_terminus_-']
-
-    return result
-"""

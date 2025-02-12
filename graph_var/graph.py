@@ -3,7 +3,7 @@ from linecache import cache
 from math import inf
 import networkx as nx
 import numpy as np
-from .utils import read_gfa, node_complement, edge_complement, sequence_complement, walk_complement, group_walks_by_name
+from .utils import read_gfa, node_complement, edge_complement, sequence_complement, walk_complement, group_walks_by_name, nearly_identical_alleles
 from .search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
@@ -415,6 +415,7 @@ class PangenomeGraph(nx.DiGraph):
         meta_info += f'##INFO=<ID=LV,Number=1,Type=Integer,Description="Line number in the tree file">\n'
         meta_info += f'##INFO=<ID=RL,Number=1,Type=Integer,Description="Reference allele reach search limit">\n'
         meta_info += f'##INFO=<ID=AL,Number=1,Type=Integer,Description="Alternative allele reach search limit">\n'
+        meta_info += '##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
         meta_info += f'##contig=<ID={chr_name[3:]}>\n'
 
         order: list = self.write_tree(tree_filename)
@@ -536,7 +537,10 @@ class PangenomeGraph(nx.DiGraph):
                         f'LU={int(node_to_line[self.positive_node(u)])};'
                         f'LV={int(node_to_line[self.positive_node(v)])};'
                         f'RL={int(ref_limit)};'
-                        f'AL={int(alt_limit)};')
+                        f'AL={int(alt_limit)}')
+
+                if nearly_identical_alleles(ref_allele, alt_allele):
+                    INFO += ';NIA=1'
 
                 allele_data_list[7] = INFO
 
