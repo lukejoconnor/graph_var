@@ -234,7 +234,7 @@ class PangenomeGraph(nx.DiGraph):
 
     def is_inversion(self, edge: tuple[str, str]) -> bool:
         u, v = edge
-        return self.nodes[u]['direction'] != self.nodes[v]['direction']
+        return self.direction(u) != self.direction(v)
 
     def is_in_tree(self, edge: tuple[str, str]) -> bool:
         return self.representative_edge(edge) in self.reference_tree
@@ -249,7 +249,7 @@ class PangenomeGraph(nx.DiGraph):
             return False
         if self.is_in_tree(edge):
             return False
-        positive_edge = edge if self.nodes[edge[0]]['direction'] == 1 else edge_complement(edge)
+        positive_edge = edge if self.direction(edge[0]) == 1 else edge_complement(edge)
         branch_point = self.edges[positive_edge]['branch_point']
         return branch_point == positive_edge[0]
 
@@ -308,17 +308,17 @@ class PangenomeGraph(nx.DiGraph):
 
         if walk_start_nodes:
             source_nodes = source_nodes.union(
-                {node for node in walk_start_nodes if self.nodes[node]['direction'] == 1}
+                {node for node in walk_start_nodes if self.direction(node) == 1}
             )
             sink_nodes = sink_nodes.union(
-                {node_complement(node) for node in walk_start_nodes if self.nodes[node]['direction'] == -1}
+                {node_complement(node) for node in walk_start_nodes if self.direction(node) == -1}
             )
         if walk_end_nodes:
             sink_nodes = sink_nodes.union(
-                {node for node in walk_end_nodes if self.nodes[node]['direction'] == 1}
+                {node for node in walk_end_nodes if self.direction(node) == 1}
             )
             source_nodes = source_nodes.union(
-                {node_complement(node) for node in walk_end_nodes if self.nodes[node]['direction'] == -1}
+                {node_complement(node) for node in walk_end_nodes if self.direction(node) == -1}
             )
 
         plus_terminus, minus_terminus = self.termini
@@ -436,11 +436,11 @@ class PangenomeGraph(nx.DiGraph):
             file.write('#'+'\t'.join(header_names) + '\n')
 
             for u, v in tqdm(self.sorted_variant_edges(exclude_terminus=exclude_terminus)):
-                # if self.nodes[u]['direction'] != self.nodes[v]['direction']:
+                # if self.direction(u) != self.direction(v):
                 #     continue
 
                 original_edge = (u, v)
-                if self.nodes[u]['direction'] == -1 and self.nodes[v]['direction'] == -1:
+                if self.direction(u) == -1 and self.direction(v) == -1:
                     u, v = edge_complement((u, v))
                 edge = (u, v)
 
@@ -546,17 +546,6 @@ class PangenomeGraph(nx.DiGraph):
 
                 file.write('\t'.join(allele_data_list) + '\n')
 
-    def write_variant_node_ids(self, filename: str) -> None:
-        """
-        # TODO
-        :param filename:
-        :return:
-        """
-        with open(filename, 'w') as file:
-            file.write("Node_u_id,Node_v_id\n")
-            for u, v in self.variant_edges:
-                file.write(f"{u},{v}\n")
-
     def write_tree(self, filename: str) -> list:
         """
         Writes the reference tree in a format such that it can be traversed without being loaded into memory.
@@ -658,7 +647,7 @@ class PangenomeGraph(nx.DiGraph):
                 continue
 
             # Only include forward direction nodes
-            if self.nodes[u]['direction'] == 1:
+            if self.direction(u) == 1:
                 self.reference_tree.add_edge(u, v)
 
         # Connect non-terminus roots of the reference tree (forest) with terminus
@@ -729,7 +718,7 @@ class PangenomeGraph(nx.DiGraph):
         return edge if self.edges[edge]['is_representative'] else edge_complement(edge)
 
     def positive_variant_edge(self, edge: tuple):
-        return edge if self.nodes[edge[0]]['direction'] == 1 or self.is_inversion(edge) else edge_complement(edge)
+        return edge if self.direction(edge[0]) == 1 or self.is_inversion(edge) else edge_complement(edge)
 
     def compute_edge_weights(self, walks: list[list]):
         """
@@ -783,7 +772,7 @@ class PangenomeGraph(nx.DiGraph):
         return result, reach_limit
 
     def positive_node(self, node: str) -> str:
-        return node if self.nodes[node]['direction'] == 1 else node_complement(node)
+        return node if self.direction(node) == 1 else node_complement(node)
 
     def direction(self, node: str) -> int:
         return self.nodes[node]['direction']
@@ -831,7 +820,7 @@ class PangenomeGraph(nx.DiGraph):
             result += segment if walk_direction == 1 else walk_complement(segment)
 
         # exclude first and sometimes last nodes
-        if self.nodes[last]['direction'] == -1 and walk_direction == 1:
+        if self.direction(last) == -1 and walk_direction == 1:
             return result[1:]
         return result[1:-1]
 
@@ -850,7 +839,7 @@ class PangenomeGraph(nx.DiGraph):
 
         u, v = variant_edge
         branch_point = self.edges[u, v]['branch_point']
-        first, last = (branch_point, v) if self.nodes[u]['direction'] == 1 else (u, branch_point)
+        first, last = (branch_point, v) if self.direction(u) == 1 else (u, branch_point)
 
         ref_path = self.walk_with_variants(first, last, [], search_limit=walkup_limit)
         alt_path = self.walk_with_variants(first, last, [variant_edge], search_limit=walkup_limit)
@@ -912,8 +901,8 @@ class PangenomeGraph(nx.DiGraph):
         """
 
         # Append start and end nodes to walk
-        start = [self.termini[0] + '_+' if self.nodes[walk[0]]['direction'] == 1 else self.termini[1] + '_-']
-        end = [self.termini[1] + '_+' if self.nodes[walk[-1]]['direction'] == 1 else self.termini[0] + '_-']
+        start = [self.termini[0] + '_+' if self.direction(walk[0]) == 1 else self.termini[1] + '_-']
+        end = [self.termini[1] + '_+' if self.direction(walk[-1]) == 1 else self.termini[0] + '_-']
         walk = start + walk + end
 
         count_ref = {}
@@ -1139,19 +1128,19 @@ class PangenomeGraph(nx.DiGraph):
             return "Not triallelic"
         variant_end_points = []
         for u, v in variants:
-            if self.nodes[u]['direction'] == 1 and self.nodes[v]['direction'] == 1:
+            if self.direction(u) == 1 and self.direction(v) == 1:
                 variant_end_points.append(v)
-            elif self.nodes[u]['direction'] == -1 and self.nodes[v]['direction'] == -1:
+            elif self.direction(u) == -1 and self.direction(v) == -1:
                 variant_end_points.append(node_complement(u))
-            elif self.nodes[u]['direction'] == 1 and self.nodes[v]['direction'] == -1:
+            elif self.direction(u) == 1 and self.direction(v) == -1:
                 variant_end_points.append(u)
                 variant_end_points.append(node_complement(v))
-            elif self.nodes[u]['direction'] == -1 and self.nodes[v]['direction'] == 1:
+            elif self.direction(u) == -1 and self.direction(v) == 1:
                 variant_end_points.append(node_complement(u))
                 variant_end_points.append(v)
             else:
                 raise ValueError("Invalid direction for variant edge nodes.")
-        #variant_end_points = [v if self.nodes[u]['direction'] == 1 else u for u, v in variants]
+        #variant_end_points = [v if self.direction(u) == 1 else u for u, v in variants]
         end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
         if len(end_nodes) == 0:
             return "Not triallelic"
@@ -1161,7 +1150,7 @@ class PangenomeGraph(nx.DiGraph):
 
         start_node = start_nodes[0]
         end_node = end_nodes[0]
-        # if self.nodes[end_node]['direction'] != self.nodes[start_node]['direction']:
+        # if self.direction(end_node) != self.direction(start_node):
         #     end_node = _node_complement(end_node)
 
         # start_degree = self.out_degree(start_node)
