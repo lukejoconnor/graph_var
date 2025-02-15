@@ -801,6 +801,14 @@ class PangenomeGraph(nx.DiGraph):
             seq += self.nodes[node]['sequence']
         return seq
 
+    def preceeding_sequence(self, node: str, seq_length: int) -> str:
+        seq = ''
+        u = node
+        while len(seq) < seq_length:
+            seq += self.nodes[u]['sequence'][::-1]
+            u = self.parent_in_tree(u)
+        return seq[::-1][:seq_length]
+
     def walk_with_variants(self, first: str, last: str, variant_edges: list, search_limit: int = inf) -> list:
         """
         Computes a walk from first node to last node, including all of the variant edges in the list.
@@ -1223,6 +1231,27 @@ class PangenomeGraph(nx.DiGraph):
                     result.append(sorted_variant_edges[i])
 
         return result
+
+    def is_repeat_expansion(self, edge: tuple[str, str]) -> bool:
+        u, v = edge
+        if self.nodes[u]['direction'] == self.nodes[v]['direction']:
+            return False # TODO
+
+        ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
+        allele_length = len(alt_allele)
+        for repeat_length in range(1,allele_length+1):
+            if allele_length % repeat_length != 0:
+                continue
+            if alt_allele == alt_allele[:repeat_length] * (allele_length // repeat_length):
+                break
+
+        preceeding_sequence = self.preceeding_sequence(branch_point, repeat_length)
+        if preceeding_sequence == alt_allele[:repeat_length]:
+            return alt_allele[:repeat_length]
+
+
+
+
 
 
 
