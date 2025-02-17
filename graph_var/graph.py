@@ -390,17 +390,6 @@ class PangenomeGraph(nx.DiGraph):
         :return:
         """
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
-
-        def reference_tree_edge(variant_edge):
-            _, v = self.positive_variant_edge(variant_edge)
-            if self.is_inversion(variant_edge):
-                v = self.positive_node(v)
-            w = self.parent_in_tree(v)
-            e = (w, v)
-            if not self.edges[e]['is_representative']:
-                w, v = edge_complement(e)
-            return w, v
-
         meta_info = f'##fileformat=VCFv4.2\n'
         meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
         meta_info += f'##INFO=<ID=OR,Number=1,Type=String,Description="Off-linear reference.">\n'
@@ -438,7 +427,9 @@ class PangenomeGraph(nx.DiGraph):
             file.write('#'+'\t'.join(header_names) + '\n')
 
             for u, v in tqdm(self.sorted_variant_edges(exclude_terminus=exclude_terminus)):
-                original_edge = (u, v)
+                representative_variant_edge = (u, v)
+                representative_ref_edge = self.representative_edge(self.reference_tree_edge(representative_variant_edge))
+
                 if self.direction(u) == -1 and self.direction(v) == -1:
                     u, v = edge_complement((u, v))
                 edge = (u, v)
@@ -475,7 +466,7 @@ class PangenomeGraph(nx.DiGraph):
                 # 'POS' 1
                 allele_data_list.append(str(self.get_variant_position(edge)))
                 # 'ID' 2
-                allele_data_list.append(f"{original_edge}")
+                allele_data_list.append(f"{representative_variant_edge}")
                 # 'REF' 3
                 allele_data_list.append(ref)
                 # 'ALT' 4
@@ -494,22 +485,22 @@ class PangenomeGraph(nx.DiGraph):
                 for sample_name in subject_ids:
                     if sample_name.startswith(("CHM", "GRCh")):
                         haplotype_name = sample_name+'_0'
-                        counts = (f"{int(bool(sample_data_dict[haplotype_name][1].get(original_edge, 0)))}:"
-                                  f"{sample_data_dict[haplotype_name][0].get(reference_tree_edge(original_edge), 0)}:"
-                                  f"{sample_data_dict[haplotype_name][1].get(original_edge, 0)}"
-                        if original_edge not in sample_missing_dict[haplotype_name] else '.:.:.')
+                        counts = (f"{int(bool(sample_data_dict[haplotype_name][1].get(representative_variant_edge, 0)))}:"
+                                  f"{sample_data_dict[haplotype_name][0].get(representative_ref_edge, 0)}:"
+                                  f"{sample_data_dict[haplotype_name][1].get(representative_variant_edge, 0)}"
+                        if representative_variant_edge not in sample_missing_dict[haplotype_name] else '.:.:.')
                         allele_data_list.append(counts)
                     else:
                         haplotype1_name = sample_name + '_1'
                         haplotype2_name = sample_name + '_2'
-                        count_1 = (f"{int(bool(sample_data_dict[haplotype1_name][1].get(original_edge, 0)))}:"
-                                  f"{sample_data_dict[haplotype1_name][0].get(reference_tree_edge(original_edge), 0)}:"
-                                  f"{sample_data_dict[haplotype1_name][1].get(original_edge, 0)}"
-                                  if original_edge not in sample_missing_dict[haplotype1_name] else '.:.:.')
-                        count_2 = (f"{int(bool(sample_data_dict[haplotype2_name][1].get(original_edge, 0)))}:"
-                                   f"{sample_data_dict[haplotype2_name][0].get(reference_tree_edge(original_edge), 0)}:"
-                                   f"{sample_data_dict[haplotype2_name][1].get(original_edge, 0)}"
-                                   if original_edge not in sample_missing_dict[haplotype2_name] else '.:.:.')
+                        count_1 = (f"{int(bool(sample_data_dict[haplotype1_name][1].get(representative_variant_edge, 0)))}:"
+                                  f"{sample_data_dict[haplotype1_name][0].get(representative_ref_edge, 0)}:"
+                                  f"{sample_data_dict[haplotype1_name][1].get(representative_variant_edge, 0)}"
+                                  if representative_variant_edge not in sample_missing_dict[haplotype1_name] else '.:.:.')
+                        count_2 = (f"{int(bool(sample_data_dict[haplotype2_name][1].get(representative_variant_edge, 0)))}:"
+                                   f"{sample_data_dict[haplotype2_name][0].get(representative_ref_edge, 0)}:"
+                                   f"{sample_data_dict[haplotype2_name][1].get(representative_variant_edge, 0)}"
+                                   if representative_variant_edge not in sample_missing_dict[haplotype2_name] else '.:.:.')
                         counts = f"{count_1}|{count_2}"
                         allele_data_list.append(counts)
 
@@ -520,8 +511,8 @@ class PangenomeGraph(nx.DiGraph):
                 INFO = (f'OR={new_ref};'
                         f'VT={self.identify_variant_type(edge)};'
                         f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
-                        f'RC={allele_count_dict[original_edge][0]};'
-                        f'AC={allele_count_dict[original_edge][1]};'
+                        f'RC={allele_count_dict[representative_variant_edge][0]};'
+                        f'AC={allele_count_dict[representative_variant_edge][1]};'
                         f'AN={AN};'
                         f'PU={int(self.nodes[u]["position"])};'
                         f'PV={int(self.nodes[v]["position"])};'
@@ -707,6 +698,13 @@ class PangenomeGraph(nx.DiGraph):
         :return: the one which is in the .gfa file
         """
         return edge if self.edges[edge]['is_representative'] else edge_complement(edge)
+
+    def reference_tree_edge(self, variant_edge):
+        _, v = self.positive_variant_edge(variant_edge)
+        if self.is_inversion(variant_edge):
+            v = self.positive_node(v)
+        w = self.parent_in_tree(v)
+        return w, v
 
     def positive_variant_edge(self, edge: tuple):
         return edge if self.direction(edge[0]) == 1 or self.is_inversion(edge) else edge_complement(edge)
@@ -1010,14 +1008,7 @@ class PangenomeGraph(nx.DiGraph):
         :return: dictionary mapping variant edges to (ref_count, alt_count) pairs
         """
         # TODO handles inversions correctly?
-        def reference_tree_edge(variant_edge):
-            _, v = self.positive_variant_edge(variant_edge)
-            if self.is_inversion(variant_edge):
-                v = self.positive_node(v)
-            w = self.parent_in_tree(v)
-            return w, v
-
-        return {e: (self.edges[reference_tree_edge(e)]['weight'], self.edges[e]['weight'])
+        return {e: (self.edges[self.reference_tree_edge(e)]['weight'], self.edges[e]['weight'])
                 for e in self.sorted_variant_edges(exclude_terminus=True)}
 
     def compute_binode_positions(self):
