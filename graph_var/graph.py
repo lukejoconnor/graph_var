@@ -781,14 +781,6 @@ class PangenomeGraph(nx.DiGraph):
             seq += self.nodes[node]['sequence']
         return seq
 
-    def preceeding_sequence(self, node: str, seq_length: int) -> str:
-        seq = ''
-        u = node
-        while len(seq) < seq_length:
-            seq += self.nodes[u]['sequence'][::-1]
-            u = self.parent_in_tree(u)
-        return seq[::-1][:seq_length]
-
     def walk_with_variants(self, first: str, last: str, variant_edges: list, search_limit: int = inf) -> list:
         """
         Computes a walk from first node to last node, including all of the variant edges in the list.
@@ -1013,8 +1005,8 @@ class PangenomeGraph(nx.DiGraph):
 
     def allele_count(self) -> dict:
         """
-        Computes alt and ref allele counts, defined as the number of times that a walk visits a variant
-        edge (u,v) and the corresponding reference tree edge (w, v).
+        Computes alt and total allele counts, defined as the number of times that a walk visits a variant
+        edge (u,v) and the corresponding branch point w.
         :return: dictionary mapping variant edges to (ref_count, alt_count) pairs
         """
         # TODO handles inversions correctly?
@@ -1197,7 +1189,17 @@ class PangenomeGraph(nx.DiGraph):
         return result
 
 
-    def match_sequence_in_tree(self, sequence: str, node: str) -> bool:
+    def match_sequence_up_tree(self, sequence: str, node: str) -> bool:
+        node_sequence = self.nodes[node]['sequence']
+        putative_match_length = min(len(sequence), len(node_sequence))
+        if self.nodes[node]['sequence'][-putative_match_length:] != sequence[-putative_match_length:]:
+            return False
+        if putative_match_length == len(sequence):
+            return True
+        remaining_sequence = sequence[:putative_match_length]
+        return self.match_sequence_up_tree(remaining_sequence, self.parent_in_tree(node))
+        
+    def match_sequence_down_tree(self, sequence: str, node: str) -> bool:
         node_sequence = self.nodes[node]['sequence']
         putative_match_length = min(len(sequence), len(node_sequence))
         if self.nodes[node]['sequence'][:putative_match_length] != sequence[:putative_match_length]:
@@ -1206,11 +1208,24 @@ class PangenomeGraph(nx.DiGraph):
             return True
         remaining_sequence = sequence[putative_match_length:]
         tree_successors = self.reference_tree.successors(node)
-        return any([self.match_sequence_in_tree(remaining_sequence, successor) for successor in tree_successors])
+        return any([self.match_sequence_down_tree(remaining_sequence, successor) for successor in tree_successors])
         
     def annotate_repeat_motif(self, variant_edge: tuple[str, str]) -> Optional[str]:
-        
+        """
+        Returns the repeat motif of a variant edge if it is a repeat. 
+        Otherwise, returns None.
+        """
+        if self.is_inversion(variant_edge):
+            return None
+        variant_edge = self.positive_variant_edge(variant_edge)
+        _, v = variant_edge
+        ref_allele, alt_allele, _, branch_point = self.ref_alt_alleles(variant_edge)
+
         def get_repeat_motif(allele: str) -> Optional[str]:
+            non_basepair_character = 'N'
+            if any(letter == non_basepair_character for letter in allele):
+                return None
+
             allele_length = len(allele)
             for repeat_length in range(1,allele_length+1):
                 if allele_length % repeat_length != 0:
@@ -1219,20 +1234,13 @@ class PangenomeGraph(nx.DiGraph):
                 if allele == motif * (allele_length // repeat_length):
                     break
 
-            preceeding_sequence = self.preceeding_sequence(branch_point, repeat_length)
-            if preceeding_sequence == motif:
+            if self.match_sequence_up_tree(motif, branch_point):
                 return motif
-
-            if self.match_sequence_in_tree(motif, v):
+            if self.match_sequence_down_tree(motif, v):
                 return motif
-            
             return None
 
-        u, v = variant_edge
-        variant_edge = self.positive_variant_edge(variant_edge)
-        if self.nodes[u]['direction'] != self.nodes[v]['direction']:
-            return None
-        ref_allele, alt_allele, _, branch_point = self.ref_alt_alleles(variant_edge)
+        
         if len(alt_allele) == 0:
             return get_repeat_motif(ref_allele)
         if len(ref_allele) == 0:
