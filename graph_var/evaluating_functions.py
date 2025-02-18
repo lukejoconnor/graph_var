@@ -25,8 +25,7 @@ def get_node_id_symbol(node: str) -> Tuple[str, str]:
     return node_id, symbol
 
 def get_variants_for_bubbles(G: PangenomeGraph,
-                             node_partition: Dict[str, Set[Tuple[str, str]]],
-                             inversion_only: bool = False,
+                             node_partition: Dict[str, Set[Tuple[str, str]]]
                              ) -> Tuple[Dict, Dict]:
     bubble_within_variants = defaultdict(set)
     bubble_crossing_variants = defaultdict(set)
@@ -34,9 +33,37 @@ def get_variants_for_bubbles(G: PangenomeGraph,
     for edge in sorted(list(G.variant_edges)):
         u, v = edge
 
-        if inversion_only:
-            if not G.is_inversion(edge):
-                continue
+        bubbles_u = node_partition[u]
+        bubbles_v = node_partition[v]
+
+        bubble_set_intersection = bubbles_u.intersection(bubbles_v)
+        bubble_set_complementary_u = bubbles_u - bubble_set_intersection
+        bubble_set_complementary_v = bubbles_v - bubble_set_intersection
+
+        if len(bubble_set_intersection) > 0:
+            for bubble in bubble_set_intersection:
+                bubble_within_variants[bubble].add(edge)
+        else:
+            for bubble in bubble_set_complementary_u:
+                bubble_crossing_variants[bubble].add(edge)
+
+            for bubble in bubble_set_complementary_v:
+                bubble_crossing_variants[bubble].add(edge)
+
+    return bubble_within_variants, bubble_crossing_variants
+
+def get_variants_for_bubbles_from_vcf(
+                             vcf_path: str,
+                             node_partition: Dict[str, Set[Tuple[str, str]]]
+                             ) -> Tuple[Dict, Dict]:
+    bubble_within_variants = defaultdict(set)
+    bubble_crossing_variants = defaultdict(set)
+
+    vcf_df = read_vcf_to_dataframe(vcf_path)
+
+    for i in range(len(vcf_df)):
+        edge = eval(vcf_df.loc[i, 'ID'])
+        u, v = edge
 
         bubbles_u = node_partition[u]
         bubbles_v = node_partition[v]
@@ -370,55 +397,28 @@ def variant_summary_result_by_region(G: PangenomeGraph,
     var_dict = variant_edges_summary(G, egde_in_region)
     return var_dict
 
-def write_bubble_summary_result(gfa_path: str,
+def write_bubble_summary_result(chr_name: str,
                                 snarl_path: str,
+                                gfa_path: str = None,
                                 vcf_path: Optional[str] = None,
-                                save_pangenome_graph: Optional[bool] = False,
-                                save_dfs_tree: Optional[bool] = False,
                                 G_pkl_path: Optional[str] = None,
-                                reference_path_index: Optional[int] = None,
                                 output_dir: Optional[str] = './',
-                                method: Optional[str] = "AT",
-                                bubble_dict: Optional[Dict] = None,
-                                node_partition: Optional[Dict] = None,
-                                compressed: Optional[bool] = False):
-    if not os.path.isfile(gfa_path):
-        raise FileNotFoundError(f"GFA file not found: {gfa_path}")
+                                method: Optional[str] = "AT"):
+    if gfa_path is not None and vcf_path is not None:
+        raise ValueError("Both GFA and VCF files are provided. Please provide only one of them.")
+    elif gfa_path is None and vcf_path is None:
+        raise ValueError("Either GFA or VCF file is required.")
 
     if not os.path.isfile(snarl_path):
         raise FileNotFoundError(f"Snarl content file not found: {snarl_path}")
 
-    if vcf_path:
-        if not os.path.isfile(vcf_path):
-            raise FileNotFoundError(f"VCF file not found: {vcf_path}")
-
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-
-    if G_pkl_path and os.path.isfile(G_pkl_path):
-        print(f"Loading graph from {G_pkl_path}...")
-        G, walks, walk_sample_names = load_graph_from_pkl(G_pkl_path, compressed=compressed)
-        chr_name = os.path.basename(G_pkl_path).split('.')[0]
-    else:
-        print("Constructing graph from GFA...")
-        G, walks, walk_sample_names = PangenomeGraph.from_gfa(gfa_path,
-                                                              reference_path_index=reference_path_index,
-                                                              return_walks=True,
-                                                              compressed=False)
-        chr_name = os.path.basename(gfa_path).split('.')[0]
-        if save_pangenome_graph:
-            if compressed:
-                save_path = os.path.join(output_dir, chr_name+'.pkl.gz')
-            else:
-                save_path = os.path.join(output_dir, chr_name+'.pkl')
-            save_graph_to_pkl(G, walks, walk_sample_names, save_path, compressed=compressed)
 
     print("Assigning node to bubbles...")
 
     if method == "AT":
-        if node_partition is None or bubble_dict is None:
-            bubble_dict, node_partition = extract_node_bubble_partition_from_snarl(snarl_path)
-        method_suffix = "_AT"
+        bubble_dict, node_partition = extract_node_bubble_partition_from_snarl(snarl_path)
     elif method == "Position":
         raise NotImplementedError("Position method is not implemented yet.")
         # if node_partition is None or bubble_dict is None:
@@ -428,23 +428,37 @@ def write_bubble_summary_result(gfa_path: str,
     else:
         raise ValueError(f"Invalid method: {method}")
 
-
-    bubble_var_count_path = f"bubble_variant_counts_{chr_name}{method_suffix}.tsv"
-
-    if save_dfs_tree:
-        dfs_tree_path = f"dfs_tree_{chr_name}.gfa"
-        print("Writing DFS tree to GFA...")
-        write_dfs_tree_to_gfa(G, os.path.join(output_dir, dfs_tree_path))
-
     print("Conducting bubble summary...")
-    var_dict_within, var_dict_crossing = get_variants_for_bubbles(G, node_partition)
+    if gfa_path:
+        if not os.path.isfile(gfa_path):
+            raise FileNotFoundError(f"GFA file not found: {gfa_path}")
+
+        if G_pkl_path and os.path.isfile(G_pkl_path):
+            print(f"Loading graph from {G_pkl_path}...")
+            G, walks, walk_sample_names = load_graph_from_pkl(G_pkl_path)
+        else:
+            print("Constructing graph from GFA...")
+            G, walks, walk_sample_names = PangenomeGraph.from_gfa(gfa_path,
+                                                                  return_walks=True,
+                                                                  compressed=False)
+
+        var_dict_within, var_dict_crossing = get_variants_for_bubbles(G, node_partition)
+
+    if vcf_path:
+        if not os.path.isfile(vcf_path):
+            raise FileNotFoundError(f"VCF file not found: {vcf_path}")
+
+        var_dict_within, var_dict_crossing = get_variants_for_bubbles_from_vcf(vcf_path, node_partition)
+
+
+    bubble_var_count_path = f"bubble_variant_counts_{chr_name}_{method}.tsv"
 
     bubble_list = list(bubble_dict.keys())
 
     var_with = [var_dict_within.get(key, {}) for key in bubble_list]
-    #var_with_summary = [variant_edges_summary(G, var_dict_within.get(key, [])) for key in bubble_list]
+    # var_with_summary = [variant_edges_summary(G, var_dict_within.get(key, [])) for key in bubble_list]
     var_cross = [var_dict_crossing.get(key, {}) for key in bubble_list]
-    #var_cross_summary = [variant_edges_summary(G, var_dict_crossing.get(key, [])) for key in bubble_list]
+    # var_cross_summary = [variant_edges_summary(G, var_dict_crossing.get(key, [])) for key in bubble_list]
 
     length_with = [len(var_dict_within.get(key, {})) for key in bubble_list]
     length_cross = [len(var_dict_crossing.get(key, {})) for key in bubble_list]
