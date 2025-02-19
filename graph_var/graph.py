@@ -894,6 +894,11 @@ class PangenomeGraph(nx.DiGraph):
         end = [self.termini[1] + '_+' if self.direction(walk[-1]) == 1 else self.termini[0] + '_-']
         walk = start + walk + end
 
+        if not hasattr(self, 'ref_edge_set'):
+            self.ref_edge_set = {self.representative_edge(self.reference_tree_edge(var_edge)) for var_edge in self.sorted_variant_edges(exclude_terminus=True)}
+
+        ref_edge_set = self.ref_edge_set
+
         count_ref = {}
         count_alt = {}
         min_pos = inf
@@ -911,7 +916,8 @@ class PangenomeGraph(nx.DiGraph):
                 max_pos = max(*self.right_position(e))
 
             if self.edges[e]['is_in_tree']:
-                count_ref[e] = count_ref.get(e, 0) + 1
+                if e in ref_edge_set:
+                    count_ref[e] = count_ref.get(e, 0) + 1
             else:
                 count_alt[e] = count_alt.get(e, 0) + 1
 
