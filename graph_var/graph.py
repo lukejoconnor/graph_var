@@ -368,10 +368,8 @@ class PangenomeGraph(nx.DiGraph):
                   walks: list,
                   sample_names: list,
                   vcf_filename: str,
-                  tree_filename: str,
                   chr_name: str,
                   size_threshold: int = None,
-                  walkup_limit: int = inf,
                   exclude_terminus: bool = True,
                   check_degenerate: bool = False,
                   ) -> None:
@@ -402,15 +400,9 @@ class PangenomeGraph(nx.DiGraph):
         meta_info += f'##INFO=<ID=AN,Number=1,Type=String,Description="The non-missing value count.">\n'
         meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
-        meta_info += f'##INFO=<ID=LU,Number=1,Type=Integer,Description="Line number in the tree file">\n'
-        meta_info += f'##INFO=<ID=LV,Number=1,Type=Integer,Description="Line number in the tree file">\n'
-        meta_info += f'##INFO=<ID=RL,Number=1,Type=Integer,Description="Reference allele reach search limit">\n'
-        meta_info += f'##INFO=<ID=AL,Number=1,Type=Integer,Description="Alternative allele reach search limit">\n'
         meta_info += '##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
         meta_info += f'##contig=<ID={chr_name[3:]}>\n'
 
-        order: list = self.write_tree(tree_filename)
-        node_to_line = {node: line for line, node in enumerate(order)}
         allele_count_dict = self.allele_count()
 
         with open(vcf_filename, 'w') as file:
@@ -434,9 +426,7 @@ class PangenomeGraph(nx.DiGraph):
                     u, v = edge_complement((u, v))
                 edge = (u, v)
 
-                ref_allele, alt_allele, last_letter_of_branch_point, branch_point, ref_limit, alt_limit = self.ref_alt_alleles(edge,
-                                                                                                         walkup_limit=walkup_limit,
-                                                                                                         return_search_bool=True)
+                ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
 
                 if len(ref_allele) == 0 or len(alt_allele) == 0:
                     ref_allele = last_letter_of_branch_point + ref_allele
@@ -515,11 +505,7 @@ class PangenomeGraph(nx.DiGraph):
                         f'AC={allele_count_dict[representative_variant_edge][1]};'
                         f'AN={AN};'
                         f'PU={int(self.nodes[u]["position"])};'
-                        f'PV={int(self.nodes[v]["position"])};'
-                        f'LU={int(node_to_line[self.positive_node(u)])};'
-                        f'LV={int(node_to_line[self.positive_node(v)])};'
-                        f'RL={int(ref_limit)};'
-                        f'AL={int(alt_limit)}')
+                        f'PV={int(self.nodes[v]["position"])}')
 
                 if nearly_identical_alleles(ref_allele, alt_allele):
                     INFO += ';NIA=1'
@@ -746,19 +732,16 @@ class PangenomeGraph(nx.DiGraph):
             self.edges[edge]['branch_point'] = branch_point
             self.edges[edge_complement(edge)]['branch_point'] = branch_point
 
-    def walk_up_tree(self, ancestor, descendant, search_limit: int = inf) -> tuple[list, bool]:
+    def walk_up_tree(self, ancestor, descendant) -> list:
         u = descendant
         result = []
         search_count = 0
-        reach_limit = False
-        while u != ancestor and search_count < search_limit:
+        while u != ancestor:
             search_count += 1
             result.append(u)
             u = self.parent_in_tree(u)
         result.append(ancestor)
-        if (search_count + 1) == search_limit:
-            reach_limit = True
-        return result, reach_limit
+        return result
 
     def positive_node(self, node: str) -> str:
         return node if self.direction(node) == 1 else node_complement(node)
@@ -779,7 +762,7 @@ class PangenomeGraph(nx.DiGraph):
             seq += self.nodes[node]['sequence']
         return seq
 
-    def walk_with_variants(self, first: str, last: str, variant_edges: list, search_limit: int = inf) -> list:
+    def walk_with_variants(self, first: str, last: str, variant_edges: list) -> list:
         """
         Computes a walk from first node to last node, including all of the variant edges in the list.
         The walk proceeds from the 'end' of the first node to the 'start' of the last node, where the sequence associated
@@ -802,7 +785,7 @@ class PangenomeGraph(nx.DiGraph):
             sink = sink if self.direction(source) == walk_direction else node_complement(source)
             pair = (source, self.positive_node(sink)) if walk_direction == 1 else \
                 (self.positive_node(sink), self.positive_node(source))
-            segment, _ = self.walk_up_tree(*pair, search_limit=search_limit)
+            segment = self.walk_up_tree(*pair)
             if not include_source:
                 segment = segment[:-1] if walk_direction == 1 else segment[1:]
             segment = segment[::-1]
@@ -813,9 +796,8 @@ class PangenomeGraph(nx.DiGraph):
             return result[1:]
         return result[1:-1]
 
-    def ref_alt_alleles(self, variant_edge: tuple,
-                        walkup_limit: int = inf,
-                        return_search_bool: bool=False,
+    def ref_alt_alleles(self,
+                        variant_edge: tuple
                         ):
         """
         Computes the reference allele and alternative allele of the branch point for each variant edge.
@@ -830,28 +812,18 @@ class PangenomeGraph(nx.DiGraph):
         branch_point = self.edges[u, v]['branch_point']
         first, last = (branch_point, v) if self.direction(u) == 1 else (u, branch_point)
 
-        ref_path = self.walk_with_variants(first, last, [], search_limit=walkup_limit)
-        alt_path = self.walk_with_variants(first, last, [variant_edge], search_limit=walkup_limit)
+        ref_path = self.walk_with_variants(first, last, [])
+        alt_path = self.walk_with_variants(first, last, [variant_edge])
 
-        ref_search_limit, alt_search_limit = False, False
-        if alt_search_limit:
-            alt_allele = '.'
-        else:
-            alt_allele = self.walk_sequence(alt_path)
-        if ref_search_limit:
-            ref_allele = '.'
-        else:
-            ref_allele = self.walk_sequence(ref_path)
+        alt_allele = self.walk_sequence(alt_path)
+        ref_allele = self.walk_sequence(ref_path)
 
         branch_sequence = self.nodes[branch_point]['sequence']
         if not branch_sequence:
             branch_sequence = 'N'
         last_letter_of_branch_point = branch_sequence[-1]
 
-        if return_search_bool:
-            return ref_allele, alt_allele, last_letter_of_branch_point, branch_point, ref_search_limit, alt_search_limit
-        else:
-            return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
+        return ref_allele, alt_allele, last_letter_of_branch_point, branch_point
 
     def genotype_and_linear_coverage_by_sample(self, walks) -> tuple[dict, dict, list]:
         """
