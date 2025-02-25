@@ -475,21 +475,25 @@ class PangenomeGraph(nx.DiGraph):
                 for sample_name in subject_ids:
                     if sample_name.startswith(("CHM", "GRCh")):
                         haplotype_name = sample_name+'_0'
-                        counts = (f"{int(bool(sample_data_dict[haplotype_name][1].get(representative_variant_edge, 0)))}:"
-                                  f"{sample_data_dict[haplotype_name][0].get(representative_ref_edge, 0)}:"
-                                  f"{sample_data_dict[haplotype_name][1].get(representative_variant_edge, 0)}"
-                        if representative_variant_edge not in sample_missing_dict[haplotype_name] else '.:.:.')
+                        cr_0 = sample_data_dict[haplotype_name][0].get(representative_ref_edge, 0) if not self.is_inversion(edge) else '.'
+                        ca_0 = sample_data_dict[haplotype_name][1].get(representative_variant_edge, 0)
+
+                        counts = (f"{int(bool(ca_0))}:{cr_0}:{ca_0}"
+                                  if representative_variant_edge not in sample_missing_dict[haplotype_name] else '.:.:.')
                         allele_data_list.append(counts)
                     else:
                         haplotype1_name = sample_name + '_1'
                         haplotype2_name = sample_name + '_2'
-                        count_1 = (f"{int(bool(sample_data_dict[haplotype1_name][1].get(representative_variant_edge, 0)))}:"
-                                  f"{sample_data_dict[haplotype1_name][0].get(representative_ref_edge, 0)}:"
-                                  f"{sample_data_dict[haplotype1_name][1].get(representative_variant_edge, 0)}"
-                                  if representative_variant_edge not in sample_missing_dict[haplotype1_name] else '.:.:.')
-                        count_2 = (f"{int(bool(sample_data_dict[haplotype2_name][1].get(representative_variant_edge, 0)))}:"
-                                   f"{sample_data_dict[haplotype2_name][0].get(representative_ref_edge, 0)}:"
-                                   f"{sample_data_dict[haplotype2_name][1].get(representative_variant_edge, 0)}"
+
+                        cr_1 = sample_data_dict[haplotype1_name][0].get(representative_ref_edge, 0) if not self.is_inversion(edge) else '.'
+                        ca_1 = sample_data_dict[haplotype1_name][1].get(representative_variant_edge, 0)
+
+                        cr_2 = sample_data_dict[haplotype2_name][0].get(representative_ref_edge, 0) if not self.is_inversion(edge) else '.'
+                        ca_2 = sample_data_dict[haplotype2_name][1].get(representative_variant_edge, 0)
+
+                        count_1 = (f"{int(bool(ca_1))}:{cr_1}:{ca_1}"
+                                   if representative_variant_edge not in sample_missing_dict[haplotype1_name] else '.:.:.')
+                        count_2 = (f"{int(bool(ca_2))}:{cr_2}:{ca_2}"
                                    if representative_variant_edge not in sample_missing_dict[haplotype2_name] else '.:.:.')
                         counts = f"{count_1}|{count_2}"
                         allele_data_list.append(counts)
@@ -498,11 +502,14 @@ class PangenomeGraph(nx.DiGraph):
                         if count != '.:.:.':
                             AN += 1
 
+                RC = allele_count_dict[representative_variant_edge][0] if not self.is_inversion(edge) else '.'
+                AC = allele_count_dict[representative_variant_edge][1]
+
                 INFO = (f'OR={new_ref};'
                         f'VT={self.identify_variant_type(edge)};'
                         f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
-                        f'RC={allele_count_dict[representative_variant_edge][0]};'
-                        f'AC={allele_count_dict[representative_variant_edge][1]};'
+                        f'RC={RC};'
+                        f'AC={AC};'
                         f'AN={AN};'
                         f'PU={int(self.nodes[u]["position"])};'
                         f'PV={int(self.nodes[v]["position"])}')
