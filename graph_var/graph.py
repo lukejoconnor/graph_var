@@ -400,6 +400,7 @@ class PangenomeGraph(nx.DiGraph):
         meta_info += f'##INFO=<ID=AN,Number=1,Type=String,Description="The non-missing value count.">\n'
         meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
+        meta_info += f'##INFO=<ID=TR_MOTIF,Number=1,Type=String,Description="Repeat motif">\n'
         meta_info += '##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
         meta_info += f'##contig=<ID={chr_name[3:]}>\n'
 
@@ -427,6 +428,11 @@ class PangenomeGraph(nx.DiGraph):
                 edge = (u, v)
 
                 ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
+                motif = self.annotate_repeat_motif(representative_variant_edge,
+                                                   ref_allele=ref_allele,
+                                                   alt_allele=alt_allele,
+                                                   branch_point=branch_point)
+                motif = '.' if motif is None else motif
 
                 if len(ref_allele) == 0 or len(alt_allele) == 0:
                     ref_allele = last_letter_of_branch_point + ref_allele
@@ -512,7 +518,8 @@ class PangenomeGraph(nx.DiGraph):
                         f'AC={AC};'
                         f'AN={AN};'
                         f'PU={int(self.nodes[u]["position"])};'
-                        f'PV={int(self.nodes[v]["position"])}')
+                        f'PV={int(self.nodes[v]["position"])};'
+                        f'TR_MOTIF={motif}')
 
                 if nearly_identical_alleles(ref_allele, alt_allele):
                     INFO += ';NIA=1'
@@ -742,9 +749,7 @@ class PangenomeGraph(nx.DiGraph):
     def walk_up_tree(self, ancestor, descendant) -> list:
         u = descendant
         result = []
-        search_count = 0
         while u != ancestor:
-            search_count += 1
             result.append(u)
             u = self.parent_in_tree(u)
         result.append(ancestor)
@@ -1186,7 +1191,11 @@ class PangenomeGraph(nx.DiGraph):
         tree_successors = self.reference_tree.successors(node)
         return any([self.match_sequence_down_tree(remaining_sequence, successor) for successor in tree_successors])
         
-    def annotate_repeat_motif(self, variant_edge: tuple[str, str]) -> Optional[str]:
+    def annotate_repeat_motif(self,
+                              variant_edge: tuple[str, str],
+                              ref_allele: str = None,
+                              alt_allele: str = None,
+                              branch_point: str = None) -> Optional[str]:
         """
         Returns the repeat motif of a variant edge if it is a repeat. 
         Otherwise, returns None.
@@ -1195,7 +1204,8 @@ class PangenomeGraph(nx.DiGraph):
             return None
         variant_edge = self.positive_variant_edge(variant_edge)
         _, v = variant_edge
-        ref_allele, alt_allele, _, branch_point = self.ref_alt_alleles(variant_edge)
+        if ref_allele is None or alt_allele is None or branch_point is None:
+            ref_allele, alt_allele, _, branch_point = self.ref_alt_alleles(variant_edge)
 
         def get_repeat_motif(allele: str) -> Optional[str]:
             non_basepair_character = 'N'

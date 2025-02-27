@@ -190,8 +190,7 @@ def extract_node_bubble_partition_from_vcf(vcf_path: str) -> Tuple[Dict, Dict]:
             ID = parts[2]
             ref, alt = parts[3], parts[4]
             INFO = parts[7]
-            INFO_list = INFO.split(';')
-            data_dict = {x.split('=')[0]: x.split('=')[1] for x in INFO_list}
+            data_dict = get_info_dict(INFO)
             data_dict['POS'] = POS
             data_dict['REF'] = ref
             data_dict['ALT'] = alt
@@ -464,17 +463,17 @@ def write_bubble_summary_result(chr_name: str,
     length_cross = [len(var_dict_crossing.get(key, {})) for key in bubble_list]
     length_total = [length_with[i] + length_cross[i] for i in range(len(bubble_list))]
 
-    if vcf_path:
-        bubble_dict_vcf, _ = extract_node_bubble_partition_from_vcf(vcf_path)
-        AC_sum = [sum(ast.literal_eval(f"[{bubble_dict_vcf[x]['AC']}]")) for x in bubble_list]
-    else:
-        AC_sum = ['.'] * len(bubble_list)
+    # if vcf_path:
+    #     bubble_dict_vcf, _ = extract_node_bubble_partition_from_vcf(vcf_path)
+    #     AC_sum = [sum(ast.literal_eval(f"[{bubble_dict_vcf[x]['AC']}]")) for x in bubble_list]
+    # else:
+    #     AC_sum = ['.'] * len(bubble_list)
 
     print("Writing bubble summary to CSV...")
     count_summary_df = pd.DataFrame({
          "Bubble_ids": bubble_list,
          "Total_count": length_total,
-         "AC_sum": AC_sum,
+         #"AC_sum": AC_sum,
          "Within_count": length_with,
          "Crossing_count": length_cross,
          "Within": var_with,
