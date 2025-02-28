@@ -202,25 +202,29 @@ class PangenomeGraph(nx.DiGraph):
             [count_or_not for _, _, count_or_not in directed_graph.edges(data='is_representative')]
         )
 
-    def identify_variant_type(self, edge: tuple[str, str]) -> str:
+    def identify_variant_type(self,
+                              edge: tuple[str, str],
+                              ref: str = None,
+                              alt: str = None,
+                              ) -> str:
         var_type = None
         if self.is_inversion(edge):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
             var_type = 'inversion'
-        if self.is_replacement(edge):
+        if self.is_replacement(edge, ref=ref, alt=alt):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
             var_type = 'replacement'
-        if self.is_insertion(edge):
+        if self.is_insertion(edge, ref=ref, alt=alt):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
             var_type = 'insertion'
-        if self.is_snp(edge):
+        if self.is_snp(edge, ref=ref, alt=alt):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
             var_type = 'snp'
-        if self.is_mnp(edge):
+        if self.is_mnp(edge, ref=ref, alt=alt):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
             var_type = 'mnp'
@@ -266,28 +270,48 @@ class PangenomeGraph(nx.DiGraph):
             return False
         return True
 
-    def is_insertion(self, edge: tuple[str, str]) -> bool:
+    def is_insertion(self,
+                     edge: tuple[str, str],
+                     ref: str = None,
+                     alt: str = None,
+                     ) -> bool:
         if not self.is_crossing_edge(edge):
             return False
-        ref, _, _, _ = self.ref_alt_alleles(edge)
+        if ref is None or alt is None:
+            ref, _, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == 0
 
-    def is_replacement(self, edge: tuple[str, str]) -> bool:
+    def is_replacement(self,
+                       edge: tuple[str, str],
+                       ref: str = None,
+                       alt: str = None,
+                       ) -> bool:
         if not self.is_crossing_edge(edge):
             return False
-        ref, alt, _, _ = self.ref_alt_alleles(edge)
+        if ref is None or alt is None:
+            ref, alt, _, _ = self.ref_alt_alleles(edge)
         return len(ref) != 0 and len(alt) != 0 and len(ref) != len(alt)
 
-    def is_snp(self, edge: tuple[str, str]) -> bool:
+    def is_snp(self,
+               edge: tuple[str, str],
+               ref: str = None,
+               alt: str = None,
+               ) -> bool:
         if not self.is_crossing_edge(edge):
             return False
-        ref, alt, _, _ = self.ref_alt_alleles(edge)
+        if ref is None or alt is None:
+            ref, alt, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == len(alt) == 1
 
-    def is_mnp(self, edge: tuple[str, str]) -> bool:
+    def is_mnp(self,
+               edge: tuple[str, str],
+               ref: str = None,
+               alt: str = None,
+               ) -> bool:
         if not self.is_crossing_edge(edge):
             return False
-        ref, alt, _, _ = self.ref_alt_alleles(edge)
+        if ref is None or alt is None:
+            ref, alt, _, _ = self.ref_alt_alleles(edge)
         return len(ref) == len(alt) > 1
 
     def add_reference_path(self, reference_walk):
@@ -390,13 +414,13 @@ class PangenomeGraph(nx.DiGraph):
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
         meta_info = f'##fileformat=VCFv4.2\n'
         meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        meta_info += f'##FORMAT=<ID=CR,Number=1,Type=String,Description="The REF count for haplotype.">\n'
+        meta_info += f'##FORMAT=<ID=CA,Number=1,Type=String,Description="The ALT count for haplotype.">\n'
         meta_info += f'##INFO=<ID=OR,Number=1,Type=String,Description="Off-linear reference.">\n'
         meta_info += f'##INFO=<ID=VT,Number=1,Type=Integer,Description="Variant type.">\n'
         meta_info += f'##INFO=<ID=DR,Number=1,Type=Integer,Description="Distance of node u, v from reference.">\n'
         meta_info += f'##INFO=<ID=RC,Number=1,Type=String,Description="The REF allele count.">\n'
         meta_info += f'##INFO=<ID=AC,Number=1,Type=String,Description="The ALT allele count.">\n'
-        meta_info += f'##INFO=<ID=CR,Number=1,Type=String,Description="The REF count for haplotype.">\n'
-        meta_info += f'##INFO=<ID=CA,Number=1,Type=String,Description="The ALT count for haplotype.">\n'
         meta_info += f'##INFO=<ID=AN,Number=1,Type=String,Description="The non-missing value count.">\n'
         meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
@@ -406,16 +430,19 @@ class PangenomeGraph(nx.DiGraph):
 
         allele_count_dict = self.allele_count()
 
+        # Write the header row
+        sample_walks_dict = group_walks_by_name(walks, sample_names)
+        sample_data_dict = {sample_name: self.genotype_and_linear_coverage_by_sample(walks) for sample_name, walks in
+                            sample_walks_dict.items()}
+        sample_missing_dict = {sample_name: set(self.get_missing_variants(data[2])) for sample_name, data in
+                               sample_data_dict.items()}
+
+        # subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys() if not sample_name.startswith("GRCh38")})
+        subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys()})
+
+        header_names = list(self.vcf_attribute_names) + subject_ids
+
         with open(vcf_filename, 'w') as file:
-            # Write the header row
-            sample_walks_dict = group_walks_by_name(walks, sample_names)
-            sample_data_dict = {sample_name: self.genotype_and_linear_coverage_by_sample(walks) for sample_name, walks in sample_walks_dict.items()}
-            sample_missing_dict = {sample_name: set(self.get_missing_variants(data[2])) for sample_name, data in sample_data_dict.items()}
-
-            #subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys() if not sample_name.startswith("GRCh38")})
-            subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys()})
-
-            header_names = list(self.vcf_attribute_names) + subject_ids
             file.write(meta_info)
             file.write('#'+'\t'.join(header_names) + '\n')
 
@@ -428,11 +455,15 @@ class PangenomeGraph(nx.DiGraph):
                 edge = (u, v)
 
                 ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
+                VT = self.identify_variant_type(edge, ref_allele, alt_allele)
+
                 motif = self.annotate_repeat_motif(representative_variant_edge,
                                                    ref_allele=ref_allele,
                                                    alt_allele=alt_allele,
                                                    branch_point=branch_point)
                 motif = '.' if motif is None else motif
+
+                # motif = '.'
 
                 if len(ref_allele) == 0 or len(alt_allele) == 0:
                     ref_allele = last_letter_of_branch_point + ref_allele
@@ -512,7 +543,7 @@ class PangenomeGraph(nx.DiGraph):
                 AC = allele_count_dict[representative_variant_edge][1]
 
                 INFO = (f'OR={new_ref};'
-                        f'VT={self.identify_variant_type(edge)};'
+                        f'VT={VT};'
                         f'DR={int(self.nodes[u]["distance_from_reference"])},{int(self.nodes[v]["distance_from_reference"])};'
                         f'RC={RC};'
                         f'AC={AC};'
@@ -761,9 +792,13 @@ class PangenomeGraph(nx.DiGraph):
     def direction(self, node: str) -> int:
         return self.nodes[node]['direction']
 
-    def get_variant_position(self, edge: tuple) -> int:
+    def get_variant_position(self,
+                             edge: tuple,
+                             ref: str = None,
+                             alt: str = None,
+                             ) -> int:
         u, v = edge
-        if (self.is_snp(edge) or self.is_mnp(edge)) and self.nodes[v]['on_reference_path'] == 1:
+        if (self.is_snp(edge, ref, alt) or self.is_mnp(edge, ref, alt)) and self.nodes[v]['on_reference_path'] == 1:
             return int(self.nodes[u]['position']) + 1
         else:
             return int(self.nodes[u]['position'])
