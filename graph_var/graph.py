@@ -1,9 +1,19 @@
+import sys
 from functools import lru_cache
 from linecache import cache
 from math import inf
 import networkx as nx
 import numpy as np
-from .utils import read_gfa, node_complement, edge_complement, sequence_complement, walk_complement, group_walks_by_name, nearly_identical_alleles
+from .utils import (
+    read_gfa,
+    node_complement,
+    edge_complement,
+    sequence_complement,
+    walk_complement,
+    group_walks_by_name,
+    nearly_identical_alleles,
+    _node_recover
+)
 from .search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 from collections import defaultdict, Counter
@@ -231,7 +241,7 @@ class PangenomeGraph(nx.DiGraph):
         if self.is_back_edge(edge):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
-            var_type = 'repeat'
+            var_type = 'duplication'
         if self.is_forward_edge(edge):
             if var_type is not None:
                 raise KeyError(f'Variant, {edge}, has dual type.')
@@ -425,7 +435,7 @@ class PangenomeGraph(nx.DiGraph):
         meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
         meta_info += f'##INFO=<ID=TR_MOTIF,Number=1,Type=String,Description="Repeat motif">\n'
-        meta_info += '##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
+        meta_info += f'##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
         meta_info += f'##contig=<ID={chr_name[3:]}>\n'
 
         allele_count_dict = self.allele_count()
@@ -463,8 +473,6 @@ class PangenomeGraph(nx.DiGraph):
                                                    branch_point=branch_point)
                 motif = '.' if motif is None else motif
 
-                # motif = '.'
-
                 if len(ref_allele) == 0 or len(alt_allele) == 0:
                     ref_allele = last_letter_of_branch_point + ref_allele
                     alt_allele = last_letter_of_branch_point + alt_allele
@@ -493,7 +501,7 @@ class PangenomeGraph(nx.DiGraph):
                 # 'POS' 1
                 allele_data_list.append(str(self.get_variant_position(edge)))
                 # 'ID' 2
-                allele_data_list.append(f"{representative_variant_edge}")
+                allele_data_list.append(f"{tuple(map(lambda x: _node_recover(x), representative_variant_edge))}")
                 # 'REF' 3
                 allele_data_list.append(ref)
                 # 'ALT' 4
@@ -554,6 +562,8 @@ class PangenomeGraph(nx.DiGraph):
 
                 if nearly_identical_alleles(ref_allele, alt_allele):
                     INFO += ';NIA=1'
+                else:
+                    INFO += ';NIA=0'
 
                 allele_data_list[7] = INFO
 
@@ -1235,6 +1245,8 @@ class PangenomeGraph(nx.DiGraph):
         Returns the repeat motif of a variant edge if it is a repeat. 
         Otherwise, returns None.
         """
+        import sys
+        sys.setrecursionlimit(len(self.reference_tree.nodes))
         if self.is_inversion(variant_edge):
             return None
         variant_edge = self.positive_variant_edge(variant_edge)
@@ -1257,7 +1269,10 @@ class PangenomeGraph(nx.DiGraph):
 
             if self.match_sequence_up_tree(motif, branch_point):
                 return motif
-            if self.match_sequence_down_tree(motif, v):
+            if not self.is_back_edge(variant_edge):
+                if self.match_sequence_down_tree(motif, v):
+                    return motif
+            else:
                 return motif
             return None
 
