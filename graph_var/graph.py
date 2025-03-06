@@ -501,7 +501,7 @@ class PangenomeGraph(nx.DiGraph):
                 # 'POS' 1
                 allele_data_list.append(str(self.get_variant_position(edge)))
                 # 'ID' 2
-                allele_data_list.append(f"{tuple(map(lambda x: _node_recover(x), representative_variant_edge))}")
+                allele_data_list.append(''.join(tuple(map(lambda x: _node_recover(x), representative_variant_edge))))
                 # 'REF' 3
                 allele_data_list.append(ref)
                 # 'ALT' 4
