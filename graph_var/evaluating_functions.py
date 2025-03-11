@@ -62,8 +62,9 @@ def get_variants_for_bubbles_from_vcf(
     vcf_df = read_vcf_to_dataframe(vcf_path)
 
     for i in range(len(vcf_df)):
-        edge = eval(vcf_df.loc[i, 'ID'])
-        u, v = edge
+        edge = vcf_df.loc[i, 'ID']
+        u, v = extract_bubble_ids(edge, symbol=True)
+        edge = (u, v)
 
         bubbles_u = node_partition[u]
         bubbles_v = node_partition[v]
@@ -143,7 +144,7 @@ def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
             gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
 
 def write_node_sequence_to_csv(G: PangenomeGraph, filename: str):
-    nodes = sorted([node[:-2] for node in list(G.nodes)])
+    nodes = sorted({node[:-2] for node in list(G.nodes)})
     sequences = [G.nodes[G.positive_node(node+'_+')]['sequence'] for node in nodes]
     df = pd.DataFrame({'NodeID': nodes, 'Sequence': sequences})
     df.to_csv(filename, index=False)
@@ -453,6 +454,7 @@ def write_bubble_summary_result(chr_name: str,
     bubble_var_count_path = f"bubble_variant_counts_{chr_name}_{method}.tsv"
 
     bubble_list = list(bubble_dict.keys())
+    level_list = [bubble_dict[bubble]['Level'] for bubble in bubble_list]
 
     var_with = [var_dict_within.get(key, {}) for key in bubble_list]
     # var_with_summary = [variant_edges_summary(G, var_dict_within.get(key, [])) for key in bubble_list]
@@ -472,6 +474,7 @@ def write_bubble_summary_result(chr_name: str,
     print("Writing bubble summary to CSV...")
     count_summary_df = pd.DataFrame({
          "Bubble_ids": bubble_list,
+         "Level": level_list,
          "Total_count": length_total,
          #"AC_sum": AC_sum,
          "Within_count": length_with,

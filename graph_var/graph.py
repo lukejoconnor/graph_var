@@ -1126,7 +1126,7 @@ class PangenomeGraph(nx.DiGraph):
             raise ValueError("Expected exactly 2 variants in the variant list")
 
         if any([self.is_back_edge(edge) for edge in variants]):
-            return "Not triallelic"
+            return "not_triallelic"
 
         if self.is_inversion(variants[0]) != self.is_inversion(variants[1]):
             "Found an inversion and a non-inversion in the variant list"
@@ -1141,7 +1141,7 @@ class PangenomeGraph(nx.DiGraph):
         assert not any([brach_point == 0 for brach_point in variant_branch_points]), "Branch point of variant not found"
         start_nodes = [node for node in endpoint_nodes if node in variant_branch_points]
         if len(start_nodes) == 0:
-            return "Not triallelic"
+            return "not_triallelic"
         variant_end_points = []
         for u, v in variants:
             if self.direction(u) == 1 and self.direction(v) == 1:
@@ -1159,7 +1159,7 @@ class PangenomeGraph(nx.DiGraph):
         # variant_end_points = [v if self.direction(u) == 1 else u for u, v in variants]
         end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
         if len(end_nodes) == 0:
-            return "Not triallelic"
+            return "not_triallelic"
 
         assert len(start_nodes) == 1 and len(end_nodes) == 1, \
             f"Found {len(start_nodes)} possible start nodes, and {len(end_nodes)} possible end nodes"
