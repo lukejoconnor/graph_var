@@ -1281,6 +1281,87 @@ class PangenomeGraph(nx.DiGraph):
             return get_repeat_motif(ref_allele)
         if len(ref_allele) == 0:
             return get_repeat_motif(alt_allele)
+
+    def delete_small_variants(self, minimum_allele_length: int = 5) -> nx.DiGraph:
+
+        simplified_graph = nx.DiGraph(self)
+        small_variant_edges = []
+        for variant_edge in self.variant_edges:
+            ref, alt, _, _ = self.ref_alt_alleles(variant_edge)
+            if len(ref) + len(alt) < minimum_allele_length:
+                small_variant_edges.append(variant_edge)
+                small_variant_edges.append(edge_complement(variant_edge))
+
+        simplified_graph.remove_edges_from(small_variant_edges)
+
+        return simplified_graph
+
+    @staticmethod
+    def delete_tips(simplified_graph: nx.DiGraph, end_points: set[str]) -> None:
+        node_in_degrees = {node: degree for node, degree in simplified_graph.in_degree()}
+        node_out_degrees = {node: degree for node, degree in simplified_graph.out_degree()}
+        tips = []
+        for node, in_degree in node_in_degrees.items():
+            out_degree = node_out_degrees[node]
+            if in_degree == 1 and out_degree == 0 and node not in end_points:
+                tips.append(node)
+
+        nodes_to_delete = []
+        for tip in tips:
+            node = tip
+            while node_in_degrees[node] == 1 and node_out_degrees[node] == 0:
+                parent = next(simplified_graph.predecessors(node))
+                node_out_degrees[parent] -= 1
+                nodes_to_delete.append(node)
+                nodes_to_delete.append(node_complement(node))
+                node = parent
+
+        simplified_graph.remove_nodes_from(nodes_to_delete)
+
+    @staticmethod
+    def contract_paths(simplified_graph: nx.DiGraph, end_points: set[str]) -> None:
+
+        def combine_nodes(parent: str, child: str) -> None:
+            neighbors = list(simplified_graph.successors(child))
+            sequence = simplified_graph.nodes[child]['sequence']
+            simplified_graph.remove_node(child)
+            simplified_graph.remove_node(node_complement(child))
+            for neighbor in neighbors:
+                simplified_graph.add_edge(parent, neighbor)
+                simplified_graph.add_edge(*edge_complement((parent, neighbor)))
+            simplified_graph.nodes[parent]['sequence'] += sequence
+            simplified_graph.nodes[node_complement(parent)]['sequence'] = sequence + \
+                simplified_graph.nodes[node_complement(parent)]['sequence']
+            
+
+        node_in_degrees = {node: degree for node, degree in simplified_graph.in_degree()}
+        node_out_degrees = {node: degree for node, degree in simplified_graph.out_degree()}
+
+        starting_points = list(end_points)
+        for node, out_degree in node_out_degrees.items():
+            in_degree = node_in_degrees[node]
+            if simplified_graph.nodes[node]['direction'] == 1 and (out_degree > 1 or in_degree > 1):
+                starting_points.append(node)
+
+        for start in starting_points:
+            for node in list(simplified_graph.successors(start)):
+                parent = start
+                while node_in_degrees[node] == 1 and node_out_degrees[node] == 1:
+                    if node_out_degrees[parent] == 1:
+                        combine_nodes(parent, node) # TODO replace with combine_path
+                        node = next(simplified_graph.successors(parent))
+                    else:
+                        parent = node
+                        node = next(simplified_graph.successors(node))
+
+
+
+
+        
+            
+        
+
+
         
 
 
