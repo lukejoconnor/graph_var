@@ -10,6 +10,7 @@ from typing import List, Tuple, Union, Dict, Set, Optional
 from collections import defaultdict
 import pandas as pd
 import ast
+import networkx as nx
 
 # Utility functions ----------------------------------------------------------------------------------------------------
 def get_node_id_symbol(node: str) -> Tuple[str, str]:
@@ -138,6 +139,18 @@ def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
             gfa_file.write(f'S\t{node_id}\t{G.nodes[node].get("sequence", "*")}\n'.encode())
 
         for edge in G.reference_tree.edges(data=False):
+            u, v = edge
+            u_id, u_symbol = get_node_id_symbol(u)
+            v_id, v_symbol = get_node_id_symbol(v)
+            gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
+
+def write_digraph_to_gfa(G: nx.DiGraph, filename: str):
+    with open(filename, 'wb') as gfa_file:
+        for node in G.nodes(data=False):
+            node_id, symbol = get_node_id_symbol(node)
+            gfa_file.write(f'S\t{node_id}\t{G.nodes[node].get("sequence", "*")}\n'.encode())
+
+        for edge in G.edges(data=False):
             u, v = edge
             u_id, u_symbol = get_node_id_symbol(u)
             v_id, v_symbol = get_node_id_symbol(v)

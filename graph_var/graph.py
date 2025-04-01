@@ -1282,11 +1282,39 @@ class PangenomeGraph(nx.DiGraph):
         if len(ref_allele) == 0:
             return get_repeat_motif(alt_allele)
 
-    def delete_small_variants(self, minimum_allele_length: int = 5) -> nx.DiGraph:
+    def simplify_subgraph(self,
+                          pos_range: tuple = None,
+                          endpoints: set[set] = None,
+                          minimum_allele_length: int = 1000) -> nx.DiGraph:
 
-        simplified_graph = nx.DiGraph(self)
+        subgraph = self.delete_small_variants(pos_range, minimum_allele_length)
+        assert not nx.is_empty(subgraph), "Invalid position range: Empty subgraph."
+        if endpoints is None:
+            node_in_degrees = {node: degree for node, degree in subgraph.in_degree()}
+            node_out_degrees = {node: degree for node, degree in subgraph.out_degree()}
+            endpoints = {node for node in subgraph.nodes
+                         if self.nodes[node]['on_reference_path'] == 1
+                         and (node_in_degrees[node] == 0 or node_out_degrees[node] == 0)}
+            assert len(endpoints) == 4
+        self.delete_tips(subgraph, endpoints)
+        self.contract_paths(subgraph, endpoints)
+
+        return subgraph
+
+    def delete_small_variants(self, pos_range: tuple = None, minimum_allele_length: int = 5) -> nx.DiGraph:
+        if pos_range == None:
+            simplified_graph = nx.DiGraph(self)
+            variant_edge_set = self.variant_edges
+        else:
+            nodes_to_include = [node for node, data in self.nodes(data=True)
+                                if (data['position'] >= pos_range[0] and data['position'] < pos_range[1]) or
+                                (data['position'] == pos_range[1] and data['on_reference_path'] == 1)]
+            simplified_graph = nx.DiGraph(self.subgraph(nodes_to_include))
+            variant_edge_set = [variant for variant in self.variant_edges
+                                 if min(self.position(variant)) >= pos_range[0] and max(self.position(variant)) <= pos_range[1]]
+
         small_variant_edges = []
-        for variant_edge in self.variant_edges:
+        for variant_edge in variant_edge_set:
             ref, alt, _, _ = self.ref_alt_alleles(variant_edge)
             if len(ref) + len(alt) < minimum_allele_length:
                 small_variant_edges.append(variant_edge)
