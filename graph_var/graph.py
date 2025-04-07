@@ -1480,8 +1480,16 @@ class PangenomeGraph(nx.DiGraph):
 
         simplified_graph.remove_nodes_from(nodes_to_delete)
 
+    
     @staticmethod
-    def contract_paths(simplified_graph: nx.DiGraph, end_points: set[str]) -> None:
+    def contract_paths(simplified_graph: nx.DiGraph, end_points: set[str]) -> dict[str, str]:
+        """
+        Contracts paths in a graph by combining nodes.
+        :param simplified_graph: A NetworkX directed graph with tips deleted and small variants removed
+        :param end_points: A set of end points in the graph, which won't be combined with other nodes
+        :return: A dictionary mapping each node that was combined with another node to the node
+        with which it was combined
+        """
 
         def combine_nodes(parent: str, child: str) -> None:
             neighbors = list(simplified_graph.successors(child))
@@ -1505,18 +1513,24 @@ class PangenomeGraph(nx.DiGraph):
             if simplified_graph.nodes[node]['direction'] == 1 and (out_degree > 1 or in_degree > 1):
                 starting_points.append(node)
 
+        node_mapping: dict[str, str] = {}
         for start in starting_points:
             for node in list(simplified_graph.successors(start)):
                 parent = start
+                combined_nodes = []
                 while node_in_degrees[node] == 1 and node_out_degrees[node] == 1:
                     if node_out_degrees[parent] == 1:
                         combine_nodes(parent, node) # TODO replace with combine_path
+                        combined_nodes.append(node)
                         node = next(simplified_graph.successors(parent))
                     else:
                         parent = node
                         node = next(simplified_graph.successors(node))
 
+                for combined_node in combined_nodes:
+                    node_mapping[combined_node] = parent
 
+        return node_mapping
 
 
         
