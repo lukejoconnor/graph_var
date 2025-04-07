@@ -102,30 +102,73 @@ def read_gfa(filename, compressed=False):
 
   return data_dict
 
-def save_graph_to_pkl(G, walks, walk_sample_names, path, compressed=False):
+def read_gfa_line_by_line(filename: str, compressed: bool = False):
+    pattern = r'\w+|[<>]'
+
+    if compressed:
+        file = gzip.open(filename, 'rt')
+    else:
+        file = open(filename, 'r')
+
+    for line in file:
+        parts = line.strip().split('\t')
+        if parts[0] == 'S':
+            # yield 'S', node_id, sequence
+            yield (parts[0], parts[1], parts[2])
+        elif parts[0] == 'L':
+            edge = (parts[1], parts[3], parts[2], parts[4])
+            # yield 'L', edge
+            yield (parts[0], edge)
+        elif parts[0] == 'W':
+            if parts[1] == 'GRCh38':
+                hit_reference = True
+            else:
+                hit_reference = False
+            sample_name = parts[1] + '_' + parts[2]
+            p = parts[6]
+            matches = re.findall(pattern, p)
+            # List to store node IDs
+            node_ids = []
+
+            # Iterate through the matches to generate node IDs
+            for i, match in enumerate(matches):
+                if match not in ['<', '>']:  # If the match is a word
+                    if matches[i - 1] == '<':
+                        # For '<', generate IDs with '-'
+                        node_ids.append(f'{match}_-')
+                    elif matches[i - 1] == '>':
+                        # For '>', generate IDs with '+'
+                        node_ids.append(f'{match}_+')
+            # node_ids.append('end_node')
+            # yield 'W', sample_name, walk
+            yield (parts[0], hit_reference, sample_name, node_ids)
+
+def save_graph_to_pkl(G, path, compressed=False):
     if compressed:
         with gzip.open(path, 'wb') as file:
             pickle.dump(G, file, protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump(walks, file, protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump(walk_sample_names, file, protocol=pickle.HIGHEST_PROTOCOL)
     else:
         with open(path, 'wb') as file:
             pickle.dump(G, file, protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump(walks, file, protocol=pickle.HIGHEST_PROTOCOL)
-            pickle.dump(walk_sample_names, file, protocol=pickle.HIGHEST_PROTOCOL)
 
 def load_graph_from_pkl(path, compressed=False):
     if compressed:
         with gzip.open(path, 'rb') as file:
             G = pickle.load(file)
-            walks = pickle.load(file)
-            walk_sample_names = pickle.load(file)
     else:
         with open(path, 'rb') as file:
             G = pickle.load(file)
-            walks = pickle.load(file)
-            walk_sample_names = pickle.load(file)
-    return G, walks, walk_sample_names
+    return G
+
+def merge_dicts(dicts: list[dict]):
+    merged = {}
+    for d in dicts:
+        for k, v in d.items():
+            if k in merged:
+                merged[k] += v
+            else:
+                merged[k] = v
+    return merged
 
 def group_walks_by_name(walks: list, names: list) -> dict:
     """
