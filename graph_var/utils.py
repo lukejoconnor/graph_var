@@ -2,6 +2,16 @@ import re
 import gzip
 import pickle
 
+def print_current_memory_usage():
+    import psutil
+    import os
+
+    process = psutil.Process(os.getpid())
+    mem_bytes = process.memory_info().rss  # Resident Set Size: RAM in use
+    mem_gb = mem_bytes / (1024 ** 3)
+
+    print(f"Current memory usage: {mem_gb:.6f} GB")
+
 def sequence_complement(s: str) -> str:
     def _base_complement(letter: str) -> str:
         base_dict: dict = {'A': 'T', 'C': 'G', 'T' : 'A', 'G': 'C'}

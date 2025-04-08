@@ -14,7 +14,8 @@ from .utils import (
     group_walks_by_name,
     nearly_identical_alleles,
     _node_recover,
-    merge_dicts
+    merge_dicts,
+    print_current_memory_usage
 )
 from .search_tree import assign_node_directions, max_weight_dfs_tree
 import os
@@ -525,12 +526,15 @@ class PangenomeGraph(nx.DiGraph):
             haplotype_name = parts[2]
             sample_name = parts[2].split('_')[0]
             if pre_sample_name is not None and sample_name != pre_sample_name:
+                # print("Sample:", pre_sample_name, sample_name)
+                # print_current_memory_usage()
                 assert sample_name not in sample_vcf_info_dict
-                # sample_missing_dict = {hap: set(self.get_missingde_variants(lc)) for hap, lc in
-                #                        sample_lc_dict.items()}
+                sample_missing_dict = {hap: set(self.get_missing_variants(lc)) for hap, lc in
+                                       sample_lc_dict.items()}
                 sample_info_list = self.get_sample_vcf_info(pre_sample_name,
                                                             sample_cr_dict,
-                                                            sample_ca_dict)
+                                                            sample_ca_dict,
+                                                            sample_missing_dict)
                 sample_vcf_info_dict[pre_sample_name] = sample_info_list
 
                 sample_cr_dict.clear()
@@ -548,11 +552,13 @@ class PangenomeGraph(nx.DiGraph):
             pre_sample_name = sample_name
 
         assert sample_name not in sample_vcf_info_dict
-        # sample_missing_dict = {hap: set(self.get_missing_variants(lc)) for hap, lc in
-        #                       sample_lc_dict.items()}
+        sample_missing_dict = {hap: set(self.get_missing_variants(lc)) for hap, lc in
+                              sample_lc_dict.items()}
         sample_info_list = self.get_sample_vcf_info(sample_name,
                                                     sample_cr_dict,
-                                                    sample_ca_dict)
+                                                    sample_ca_dict,
+                                                    sample_missing_dict
+                                                    )
         sample_vcf_info_dict[sample_name] = sample_info_list
 
         sample_cr_dict.clear()
@@ -663,7 +669,7 @@ class PangenomeGraph(nx.DiGraph):
                             sample_name,
                             sample_cr_dict,
                             sample_ca_dict,
-                            #sample_missing_dict
+                            sample_missing_dict
                             ):
         sample_vcf_info = []
         for u, v in self.sorted_variant_edges():
@@ -679,10 +685,10 @@ class PangenomeGraph(nx.DiGraph):
                 cr_0 = sample_cr_dict[haplotype_name].get(representative_ref_edge, 0) if not self.is_inversion(edge) else '.'
                 ca_0 = sample_ca_dict[haplotype_name].get(representative_variant_edge, 0)
 
-                # counts = (f"{int(bool(ca_0))}:{cr_0}:{ca_0}"
-                #           if representative_variant_edge not in sample_missing_dict[haplotype_name] else '.:.:.')
                 counts = (f"{int(bool(ca_0))}:{cr_0}:{ca_0}"
-                          if cr_0 != 0 or ca_0 != 0 else '.:.:.')
+                          if representative_variant_edge not in sample_missing_dict[haplotype_name] else '.:.:.')
+                # counts = (f"{int(bool(ca_0))}:{cr_0}:{ca_0}"
+                #           if cr_0 != 0 or ca_0 != 0 else '.:.:.')
             else:
                 haplotype1_name = sample_name + '_1'
                 haplotype2_name = sample_name + '_2'
@@ -693,14 +699,14 @@ class PangenomeGraph(nx.DiGraph):
                 cr_2 = sample_cr_dict[haplotype2_name].get(representative_ref_edge, 0) if not self.is_inversion(edge) else '.'
                 ca_2 = sample_ca_dict[haplotype2_name].get(representative_variant_edge, 0)
 
-                # count_1 = (f"{int(bool(ca_1))}:{cr_1}:{ca_1}"
-                #            if representative_variant_edge not in sample_missing_dict[haplotype1_name] else '.:.:.')
-                # count_2 = (f"{int(bool(ca_2))}:{cr_2}:{ca_2}"
-                #            if representative_variant_edge not in sample_missing_dict[haplotype2_name] else '.:.:.')
                 count_1 = (f"{int(bool(ca_1))}:{cr_1}:{ca_1}"
-                           if cr_1 != 0 or ca_1 != 0 else '.:.:.')
+                           if representative_variant_edge not in sample_missing_dict[haplotype1_name] else '.:.:.')
                 count_2 = (f"{int(bool(ca_2))}:{cr_2}:{ca_2}"
-                           if cr_2 != 0 or ca_2 != 0 else '.:.:.')
+                           if representative_variant_edge not in sample_missing_dict[haplotype2_name] else '.:.:.')
+                # count_1 = (f"{int(bool(ca_1))}:{cr_1}:{ca_1}"
+                #            if cr_1 != 0 or ca_1 != 0 else '.:.:.')
+                # count_2 = (f"{int(bool(ca_2))}:{cr_2}:{ca_2}"
+                #            if cr_2 != 0 or ca_2 != 0 else '.:.:.')
                 counts = f"{count_1}|{count_2}"
             sample_vcf_info.append(counts)
         return sample_vcf_info
