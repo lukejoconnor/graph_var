@@ -1,5 +1,5 @@
 import sys
-from functools import lru_cache
+from functools import lru_cache, cached_property
 from linecache import cache
 from math import inf
 import networkx as nx
@@ -48,12 +48,9 @@ class PangenomeGraph(nx.DiGraph):
         edges = [edge_with_data for edge_with_data in self.edges(data=True) if edge_with_data[2]['is_representative']]
         return sorted(edges, key=lambda edge: edge[2]['index'])
 
-    def sorted_variant_edges(self, exclude_terminus=True) -> list[str]:
-        if exclude_terminus:
-            sorted_vars = [edge for edge in self.variant_edges if not self.is_terminal(edge)]
-        else:
-            sorted_vars = self.variant_edges
-
+    @cached_property
+    def sorted_variant_edges(self) -> list[str]:
+        sorted_vars = [edge for edge in self.variant_edges if not self.is_terminal(edge)]
         sorted_vars = sorted(sorted_vars, key=lambda x:
                       (self.nodes[self.positive_variant_edge(x)[0]]['position'],
                        int(self.nodes[self.positive_variant_edge(x)[0]]["distance_from_reference"])))
@@ -575,7 +572,7 @@ class PangenomeGraph(nx.DiGraph):
             file.write('#'+'\t'.join(header_names) + '\n')
 
             print("Writing vcf file")
-            for idx, (u, v) in enumerate(tqdm(self.sorted_variant_edges())):
+            for idx, (u, v) in enumerate(tqdm(self.sorted_variant_edges)):
                 representative_variant_edge = (u, v)
                 # representative_ref_edge = self.representative_edge(self.reference_tree_edge(representative_variant_edge))
 
@@ -672,7 +669,7 @@ class PangenomeGraph(nx.DiGraph):
                             sample_missing_dict
                             ):
         sample_vcf_info = []
-        for u, v in self.sorted_variant_edges():
+        for u, v in self.sorted_variant_edges:
             representative_variant_edge = (u, v)
             representative_ref_edge = self.representative_edge(self.reference_tree_edge(representative_variant_edge))
 
@@ -1066,7 +1063,7 @@ class PangenomeGraph(nx.DiGraph):
         walk = start + walk + end
 
         if not hasattr(self, 'ref_edge_set'):
-            self.ref_edge_set = {self.representative_edge(self.reference_tree_edge(var_edge)) for var_edge in self.sorted_variant_edges(exclude_terminus=True)}
+            self.ref_edge_set = {self.representative_edge(self.reference_tree_edge(var_edge)) for var_edge in self.sorted_variant_edges}
 
         ref_edge_set = self.ref_edge_set
 
@@ -1174,7 +1171,7 @@ class PangenomeGraph(nx.DiGraph):
             ref_allele, alt_allele, _, _ = self.ref_alt_alleles(variant_edge)
             return len(ref_allele) + len(alt_allele)
 
-        return {e: _allele_length(e) for e in self.sorted_variant_edges(exclude_terminus=True)}
+        return {e: _allele_length(e) for e in self.sorted_variant_edges}
 
     def allele_count(self) -> dict:
         """
@@ -1184,7 +1181,7 @@ class PangenomeGraph(nx.DiGraph):
         """
         # TODO handles inversions correctly?
         return {e: (self.edges[self.reference_tree_edge(e)]['weight'], self.edges[e]['weight'])
-                for e in self.sorted_variant_edges(exclude_terminus=True)}
+                for e in self.sorted_variant_edges}
 
     def compute_binode_positions(self):
         """
@@ -1340,7 +1337,7 @@ class PangenomeGraph(nx.DiGraph):
         # order walks and variants by position
         source_positions = np.sort([x[1] for x in linear_coverages] + [self.position('+_terminus_+')])
         sink_positions = np.sort([x[0] for x in linear_coverages] + [self.right_position('-_terminus_+')])
-        sorted_variant_edges = self.sorted_variant_edges(exclude_terminus=True)
+        sorted_variant_edges = self.sorted_variant_edges
         sorted_variant_positions = [min(*self.position(e)) for e in sorted_variant_edges]
 
         result = []
