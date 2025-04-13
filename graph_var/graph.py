@@ -74,9 +74,9 @@ class PangenomeGraph(nx.DiGraph):
 
     def on_reference_path(self, node_or_edge):
         if type(node_or_edge) is tuple:
-            if not self.has_edge(node_or_edge):
+            if not self.has_edge(*node_or_edge):
                 raise ValueError("Graph does not have edge {node_or_edge}")
-            return self.nodes[node_or_edge[1]]['on_reference_path']
+            return (self.nodes[node_or_edge[0]]['on_reference_path'] or self.nodes[node_or_edge[1]]['on_reference_path'])
         elif type(node_or_edge) is str:
             if not self.has_node(node_or_edge):
                 raise ValueError("Graph does not have node {node_or_edge}")
@@ -87,7 +87,7 @@ class PangenomeGraph(nx.DiGraph):
             return None
         return next(self.reference_tree.predecessors(node))
 
-    def position(self, node_or_edge: Any) -> int:
+    def position(self, node_or_edge: Any) -> Any:
         if isinstance(node_or_edge, str):
             return self.nodes[node_or_edge]['position']
         elif isinstance(node_or_edge, tuple):
@@ -95,7 +95,7 @@ class PangenomeGraph(nx.DiGraph):
         else:
             raise TypeError
 
-    def right_position(self, node_or_edge: Any) -> int:
+    def right_position(self, node_or_edge: Any) -> Any:
         if isinstance(node_or_edge, str):
             return self.nodes[node_or_edge]['right_position']
         elif isinstance(node_or_edge, tuple):
@@ -323,7 +323,7 @@ class PangenomeGraph(nx.DiGraph):
         return self.direction(u) != self.direction(v)
 
     def is_in_tree(self, edge: tuple[str, str]) -> bool:
-        return self.representative_edge(edge) in self.reference_tree
+        return (edge in self.reference_tree or edge_complement(edge) in self.reference_tree)
 
     def is_back_edge(self, edge: tuple[str, str]) -> bool:
         if self.is_inversion(edge):
@@ -476,16 +476,11 @@ class PangenomeGraph(nx.DiGraph):
                   check_degenerate: bool = False,
                   ) -> None:
         """
-        Writes the variant call format (vcf) file and the tree file. The vcf file contains the reference and
-        alternative alleles, and the tree file contains the node names and corresponding sequences.
-        :param walks: the list of walks extracted from the .gfa file
-        :param sample_names: the haplotype id from the .gfa file
+        Writes the variant call format (vcf) file.
+        :param gfa_path: the .gfa file, from which walks are read
         :param vcf_filename: the output vcf file path
-        :param tree_filename: the output tree file path which contains the node and corresponding sequence
         :param chr_name: the chromosome name in the first column of output vcf file
         :param size_threshold: the truncation length of ref and alt sequence
-        :param walkup_limit: the maximum length of the walk up to the branch point
-        :param exclude_terminus: whether to exclude the terminus nodes
         :param check_degenerate: whether to exclude variants whose ref and alt alleles are identical
         :return:
         """
@@ -572,7 +567,7 @@ class PangenomeGraph(nx.DiGraph):
             file.write('#'+'\t'.join(header_names) + '\n')
 
             print("Writing vcf file")
-            for idx, (u, v) in enumerate(tqdm(self.sorted_variant_edges)):
+            for idx, (u, v) in tqdm(enumerate(self.sorted_variant_edges)):
                 representative_variant_edge = (u, v)
                 # representative_ref_edge = self.representative_edge(self.reference_tree_edge(representative_variant_edge))
 
@@ -589,10 +584,24 @@ class PangenomeGraph(nx.DiGraph):
                                                    branch_point=branch_point)
                 motif = '.' if motif is None else motif
 
-                if len(ref_allele) == 0 or len(alt_allele) == 0:
+
+
+                if check_degenerate:
+                    if ref_allele == alt_allele:
+                        continue
+
+                prepend_letter_to_alleles = (len(ref_allele) == 0 or len(alt_allele) == 0)
+
+                new_ref = '.'
+                if not self.on_reference_path(edge):
+                    new_ref = ref
+                    ref = '.'
+                    prepend_letter_to_alleles = False
+                
+                if prepend_letter_to_alleles:
                     ref_allele = last_letter_of_branch_point + ref_allele
                     alt_allele = last_letter_of_branch_point + alt_allele
-
+                
                 if size_threshold:
                     ref = ref_allele[:size_threshold]
                     alt = alt_allele[:size_threshold]
@@ -600,22 +609,13 @@ class PangenomeGraph(nx.DiGraph):
                     ref = ref_allele
                     alt = alt_allele
 
-                if check_degenerate:
-                    if ref_allele == alt_allele:
-                        continue
+                edge_vcf_position = self.get_vcf_position(edge, prepend_letter_to_alleles)
 
                 allele_data_list = []
-
-                if self.nodes[v]['on_reference_path'] == 1:
-                    new_ref = '.'
-                else:
-                    new_ref = ref
-                    ref = '.'
-
                 # 'CHROM' 0
                 allele_data_list.append(chr_name)
                 # 'POS' 1
-                allele_data_list.append(str(self.get_variant_position(edge)))
+                allele_data_list.append(str(edge_vcf_position))
                 # 'ID' 2
                 allele_data_list.append(''.join(tuple(map(lambda x: _node_recover(x), representative_variant_edge))))
                 # 'REF' 3
@@ -941,16 +941,15 @@ class PangenomeGraph(nx.DiGraph):
     def direction(self, node: str) -> int:
         return self.nodes[node]['direction']
 
-    def get_variant_position(self,
+    def get_vcf_position(self,
                              edge: tuple,
-                             ref: str = None,
-                             alt: str = None,
+                             prepend_letter_to_alleles: bool,
                              ) -> int:
-        u, v = edge
-        if (self.is_snp(edge, ref, alt) or self.is_mnp(edge, ref, alt)) and self.nodes[v]['on_reference_path'] == 1:
-            return int(self.nodes[u]['position']) + 1
-        else:
-            return int(self.nodes[u]['position'])
+        """The VCF position of a variant is offset by 1 compared with the ordinary position, except
+        variants that by convention have the last letter of the branch point prepended to their ref 
+        and their alt allele."""
+        u, _ = self.positive_variant_edge(edge)
+        return self.position(u) + 1 - int(prepend_letter_to_alleles)
 
     def walk_sequence(self, walk: list[str]) -> str:
         seq = ''
@@ -1211,6 +1210,8 @@ class PangenomeGraph(nx.DiGraph):
             self.nodes[node_complement(u)]['distance_from_reference'] = self.nodes[u]['distance_from_reference']
 
     def compute_binode_right_positions(self):
+        """Computes the right position of each binode, defined as the minimum position of its successors in the 
+        positive subgraph minus back edges."""
         positive_subgraph = self.subgraph([n for n, direction in self.nodes(data="direction") if direction == 1])
         positive_subgraph = self.edge_subgraph([edge for edge in positive_subgraph.edges() if not self.is_back_edge(edge)])
         order = nx.topological_sort(positive_subgraph)
@@ -1266,7 +1267,7 @@ class PangenomeGraph(nx.DiGraph):
             return "not_triallelic"
 
         if self.is_inversion(variants[0]) != self.is_inversion(variants[1]):
-            "Found an inversion and a non-inversion in the variant list"
+           raise ValueError("Found an inversion and a non-inversion in the variant list")
 
         endpoint_nodes = [node + '_+' for node in endpoint_binodes]
         endpoint_nodes += [node + '_-' for node in endpoint_binodes]
@@ -1293,7 +1294,7 @@ class PangenomeGraph(nx.DiGraph):
                 variant_end_points.append(v)
             else:
                 raise ValueError("Invalid direction for variant edge nodes.")
-        # variant_end_points = [v if self.direction(u) == 1 else u for u, v in variants]
+
         end_nodes = [node for node in endpoint_nodes if node in variant_end_points]
         if len(end_nodes) == 0:
             return "not_triallelic"
@@ -1331,8 +1332,8 @@ class PangenomeGraph(nx.DiGraph):
 
     def get_missing_variants(self, linear_coverages: list[tuple]) -> list:
         """
-        Computes variant edges that are missing from a list of genotypes where each genotype represents one of the walks of a haplotype.
-        :param genotypes: list of genotypes, where each genotype is a dictionary mapping variant edges to visit count"""
+        Computes variant edges that are missing from a haplotype.
+        :param linear_coverages: minimum and maximum positions of each walk in a haplotype."""
 
         # order walks and variants by position
         source_positions = np.sort([x[1] for x in linear_coverages] + [self.position('+_terminus_+')])
@@ -1352,7 +1353,10 @@ class PangenomeGraph(nx.DiGraph):
         return result
 
 
-    def match_sequence_up_tree(self, sequence: str, node: str) -> bool:
+    def _match_sequence_up_tree(self, sequence: str, node: str) -> bool:
+        """Returns True if `sequence` is a suffix of the unique sequence beginning at a terminus and
+        ending at `node` within the tree.
+        """
         node_sequence = self.nodes[node]['sequence']
         putative_match_length = min(len(sequence), len(node_sequence))
         if self.nodes[node]['sequence'][-putative_match_length:] != sequence[-putative_match_length:]:
@@ -1360,9 +1364,11 @@ class PangenomeGraph(nx.DiGraph):
         if putative_match_length == len(sequence):
             return True
         remaining_sequence = sequence[:putative_match_length]
-        return self.match_sequence_up_tree(remaining_sequence, self.parent_in_tree(node))
+        return self._match_sequence_up_tree(remaining_sequence, self.parent_in_tree(node))
         
-    def match_sequence_down_tree(self, sequence: str, node: str) -> bool:
+    def _match_sequence_down_tree(self, sequence: str, node: str) -> bool:
+        """Returns True if `sequence' is a prefix of some sequence beginning at `node` in
+        thre tree."""
         node_sequence = self.nodes[node]['sequence']
         putative_match_length = min(len(sequence), len(node_sequence))
         if self.nodes[node]['sequence'][:putative_match_length] != sequence[:putative_match_length]:
@@ -1371,7 +1377,22 @@ class PangenomeGraph(nx.DiGraph):
             return True
         remaining_sequence = sequence[putative_match_length:]
         tree_successors = self.reference_tree.successors(node)
-        return any([self.match_sequence_down_tree(remaining_sequence, successor) for successor in tree_successors])
+        return any([self._match_sequence_down_tree(remaining_sequence, successor) \
+            for successor in tree_successors])
+        
+    def _match_sequence_down_graph(self, sequence: str, node: str, end_node: str) -> bool:
+        """Returns True if `sequence' is a prefix of some sequence beginning at `node` in
+        the graph."""
+        node_sequence = self.nodes[node]['sequence']
+        putative_match_length = min(len(sequence), len(node_sequence))
+        if self.nodes[node]['sequence'][:putative_match_length] != sequence[:putative_match_length]:
+            return False
+        if putative_match_length == len(sequence):
+            return (node == end_node and len(sequence) == len(node_sequence))
+        remaining_sequence = sequence[putative_match_length:]
+        tree_successors = self.successors(node)
+        return any([self._match_sequence_down_graph(remaining_sequence, successor, end_node) \
+            for successor in tree_successors])
         
     def annotate_repeat_motif(self,
                               variant_edge: tuple[str, str],
@@ -1404,10 +1425,10 @@ class PangenomeGraph(nx.DiGraph):
                 if allele == motif * (allele_length // repeat_length):
                     break
 
-            if self.match_sequence_up_tree(motif, branch_point):
+            if self._match_sequence_up_tree(motif, branch_point):
                 return motif
             if not self.is_back_edge(variant_edge):
-                if self.match_sequence_down_tree(motif, v):
+                if self._match_sequence_down_tree(motif, v):
                     return motif
             else:
                 return motif
@@ -1419,10 +1440,33 @@ class PangenomeGraph(nx.DiGraph):
         if len(ref_allele) == 0:
             return get_repeat_motif(alt_allele)
 
+    def missing_inversion_allele(self, variant_edge: tuple[str, str], minimum_alt_length: int=10) -> Optional[str]:
+        """Checks if the alt allele of a variant edge matches the reverse complement of some other path from branch 
+        point to v, whether that be the reference allele or a different alt path. Returns the matching allele
+        or None."""
+        if not self.is_crossing_edge(variant_edge):
+            return None
+        variant_edge = self.positive_variant_edge(variant_edge)
+        ref, alt, _, branch_point = self.ref_alt_alleles(variant_edge)
+        if len(alt) < minimum_alt_length:
+            return None
+
+        end_node = variant_edge[1]
+        alt_complement = self.nodes[branch_point]['sequence'] \
+            + sequence_complement(alt) + self.nodes[end_node]['sequence']
+
+        if self._match_sequence_down_graph(alt_complement, branch_point, end_node):
+            return alt
+
+        return None
+        
     def simplify_subgraph(self,
                           pos_range: tuple = None,
                           endpoints: set[set] = None,
                           minimum_allele_length: int = 1000) -> nx.DiGraph:
+        """Returns a simplified minor of the underlying directed graph, with variant
+        edges remvoed if their combined allele length is less than the minimum, with
+        'tips' removed, and with 'paths' contracted."""
 
         subgraph = self.delete_small_variants(pos_range, minimum_allele_length)
         assert not nx.is_empty(subgraph), "Invalid position range: Empty subgraph."
@@ -1439,6 +1483,8 @@ class PangenomeGraph(nx.DiGraph):
         return subgraph
 
     def delete_small_variants(self, pos_range: tuple = None, minimum_allele_length: int = 5) -> nx.DiGraph:
+        """Returns an edge subgraph of the underlying directed graph with variant edges removed
+        if their combined allele length is less than the minimum."""
         if pos_range == None:
             simplified_graph = nx.DiGraph(self)
             variant_edge_set = self.variant_edges
