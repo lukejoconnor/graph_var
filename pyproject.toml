@@ -1,5 +1,5 @@
 [project]
-name = "graph_var"
+name = "pantree"
 version = "0.1.0"
 description = "Reference tree-based variant identification and classification in a pangenome graph"
 readme = "README.md"
@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
+pantree = "graph_var.cli:main"
 graph_var = "graph_var.cli:main"
 
 [build-system]
