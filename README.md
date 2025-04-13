@@ -37,7 +37,7 @@ edge_visit_counts: dict = G.count_edge_visits(genotype)
 ## Command Line Interface
 
 ```bash
-graph_var <gfa_file> [options]
+pantree <gfa_file> [options]
 ```
 
 ### Required Arguments
