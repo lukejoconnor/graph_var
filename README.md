@@ -7,7 +7,7 @@
 - [Command Line Interface](#command-line-interface)
 
 ## Introduction
-This repository is very much a work in progress. If you use our code, please do reach out with questions and feedback.
+`pantree` is a work in progress. If you use our code, please do reach out with questions and feedback.
 
 ## Usage
 ```python
@@ -22,9 +22,8 @@ G, walks, walk_sample_names = PangenomeGraph.from_gfa(gfa_path,
 
 # Generate vcf file
 vcf_path = "/path/to/output.vcf"
-tree_path = "/path/to/output.tree"
 chr_id = "chr1"
-G.write_vcf(walks, walk_sample_names, vcf_path, tree_path, chr_id, exclude_terminus=True)
+G.write_vcf(gfa_path, vcf_path, chr_id)
 
 # Enumerate variants of different types
 edge_type_count: dict = G.variant_edges_summary()
@@ -38,7 +37,7 @@ edge_visit_counts: dict = G.count_edge_visits(genotype)
 ## Command Line Interface
 
 ```bash
-graph_var <gfa_file> [options]
+pantree <gfa_file> [options]
 ```
 
 ### Required Arguments
@@ -58,16 +57,16 @@ graph_var <gfa_file> [options]
 ```bash
 # Basic usage - analyze a GFA file and output VCF
 # Will automatically try to find GRCh38 reference path
-graph_var input.gfa --vcf output.vcf
+pantree input.gfa --vcf output.vcf
 
 # Generate node and edge info files (CSV format)
-graph_var input.gfa --out-nodeinfo nodes.csv --out-edgeinfo edges.csv
+pantree input.gfa --out-nodeinfo nodes.csv --out-edgeinfo edges.csv
 
 # Analyze with specific reference path and chromosome ID
-graph_var input.gfa --vcf output.vcf --ref-path-index 2 --chr-id chr20
+pantree input.gfa --vcf output.vcf --ref-path-index 2 --chr-id chr20
 
 # Print variant summary to console
-graph_var input.gfa --summary
+pantree input.gfa --summary
 
 # Write variant summary to a file
-graph_var input.gfa --summary summary.txt
+pantree input.gfa --summary summary.txt
