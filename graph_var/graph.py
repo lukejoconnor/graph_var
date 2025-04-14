@@ -593,9 +593,10 @@ class PangenomeGraph(nx.DiGraph):
                 prepend_letter_to_alleles = (len(ref_allele) == 0 or len(alt_allele) == 0)
 
                 new_ref = '.'
-                if not self.on_reference_path(edge):
-                    new_ref = ref
-                    ref = '.'
+                ref_allele_on_forward_reference_path = self.direction(edge[0]) == 1 and self.on_reference_path(edge)
+                if not ref_allele_on_forward_reference_path:
+                    new_ref = ref_allele
+                    ref_allele = '.'
                     prepend_letter_to_alleles = False
                 
                 if prepend_letter_to_alleles:
@@ -603,11 +604,8 @@ class PangenomeGraph(nx.DiGraph):
                     alt_allele = last_letter_of_branch_point + alt_allele
                 
                 if size_threshold:
-                    ref = ref_allele[:size_threshold]
-                    alt = alt_allele[:size_threshold]
-                else:
-                    ref = ref_allele
-                    alt = alt_allele
+                    ref_allele = ref_allele[:size_threshold]
+                    alt_allele = alt_allele[:size_threshold]
 
                 edge_vcf_position = self.get_vcf_position(edge, prepend_letter_to_alleles)
 
@@ -619,9 +617,9 @@ class PangenomeGraph(nx.DiGraph):
                 # 'ID' 2
                 allele_data_list.append(''.join(tuple(map(lambda x: _node_recover(x), representative_variant_edge))))
                 # 'REF' 3
-                allele_data_list.append(ref)
+                allele_data_list.append(ref_allele)
                 # 'ALT' 4
-                allele_data_list.append(alt)
+                allele_data_list.append(alt_allele)
                 # 'QUAL' 5
                 allele_data_list.append('60')
                 # 'FILTER' 6
