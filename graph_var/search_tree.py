@@ -90,7 +90,7 @@ def assign_node_directions(G: nx.DiGraph,
         
         # Ensure that all connected components are visited
         num_unvisited = G.number_of_nodes() - len(visited)
-        if num_unvisited == 0:
+        if num_unvisited != 0:
             break
         print('Visiting another connected component, with at least {num_unvisited} nodes')
         unvisited_node = set(G.nodes).difference(visited).pop()
