@@ -2,15 +2,10 @@ import re
 import gzip
 import pickle
 
-def print_current_memory_usage():
-    import psutil
-    import os
-
-    process = psutil.Process(os.getpid())
-    mem_bytes = process.memory_info().rss  # Resident Set Size: RAM in use
-    mem_gb = mem_bytes / (1024 ** 3)
-
-    print(f"Current memory usage: {mem_gb:.6f} GB")
+import time
+import os
+import psutil
+from datetime import datetime
 
 def sequence_complement(s: str) -> str:
     def _base_complement(letter: str) -> str:
@@ -237,3 +232,18 @@ def nearly_identical_alleles(allele1: str, allele2: str, threshold: int = 10):
             idx2 += 1
         
     return True
+
+def log_action(log_path: str, start_time: float, action: str):
+    # Get timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Measure memory in MB
+    memory_mb = psutil.Process().memory_info().rss / 1024 / 1024
+    elapsed = time.time() - start_time
+
+    # Build the header string
+    log_entry = f"{timestamp},{elapsed:.2f} s,{memory_mb:.2f} MB,{action}\n"
+
+    # Append to the end of the log file
+    with open(log_path, "a") as log_file:
+        log_file.write(log_entry)
