@@ -526,8 +526,8 @@ class PangenomeGraph(nx.DiGraph):
         meta_info += f'##INFO=<ID=RC,Number=1,Type=String,Description="The REF allele count.">\n'
         meta_info += f'##INFO=<ID=AC,Number=1,Type=String,Description="The ALT allele count.">\n'
         meta_info += f'##INFO=<ID=AN,Number=1,Type=String,Description="The non-missing value count.">\n'
-        meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of U (left node of variant edge)">\n'
-        meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of V (right node of variant edge)">\n'
+        meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of u (left node of variant edge)">\n'
+        meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of v (right node of variant edge)">\n'
         meta_info += f'##INFO=<ID=TR_MOTIF,Number=1,Type=String,Description="Repeat motif">\n'
         meta_info += f'##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
         meta_info += f'##contig=<ID={chr_name[3:]}>\n'
@@ -1250,14 +1250,14 @@ class PangenomeGraph(nx.DiGraph):
         """Computes the right position of each binode, defined as the minimum position of its successors in the 
         positive subgraph minus back edges."""
         positive_subgraph = self.subgraph([n for n, direction in self.nodes(data="direction") if direction == 1])
-        positive_subgraph = self.edge_subgraph([edge for edge in positive_subgraph.edges() if not self.is_back_edge(edge)])
-        order = nx.topological_sort(positive_subgraph)
+        positive_subgraph_no_cycle = self.edge_subgraph([edge for edge in positive_subgraph.edges() if not self.is_back_edge(edge)])
+        order = nx.topological_sort(positive_subgraph_no_cycle)
         for u in reversed(list(order)):
             if self.on_reference_path(u):
                 self.nodes[u]['right_position'] = self.nodes[u]['position']
                 self.nodes[node_complement(u)]['right_position'] = self.nodes[node_complement(u)]['position']
                 continue
-            successor_positions = [self.right_position(v) for v in self.successors(u)]
+            successor_positions = [self.right_position(v) for v in positive_subgraph.successors(u)]
             self.nodes[u]['right_position'] = np.min(successor_positions)
             self.nodes[node_complement(u)]['right_position'] = self.nodes[u]['right_position']
 
