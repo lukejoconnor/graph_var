@@ -530,7 +530,7 @@ class PangenomeGraph(nx.DiGraph):
         meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of v (right node of variant edge)">\n'
         meta_info += f'##INFO=<ID=TR_MOTIF,Number=1,Type=String,Description="Repeat motif">\n'
         meta_info += f'##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
-        meta_info += f'##contig=<ID={chr_name[3:]}>\n'
+        meta_info += f'##contig=<ID=chr{chr_name[3:]}>\n'
 
         gfa_basename = os.path.basename(gfa_path)
         allele_count_dict = self.allele_count()
