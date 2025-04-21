@@ -604,7 +604,7 @@ class PangenomeGraph(nx.DiGraph):
             file.write(meta_info)
             file.write('#'+'\t'.join(header_names) + '\n')
 
-            for idx, (u, v) in enumerate(tqdm(self.sorted_variant_edges)):
+            for idx, (u, v) in tqdm(enumerate(self.sorted_variant_edges)):
                 representative_variant_edge = (u, v)
                 # representative_ref_edge = self.representative_edge(self.reference_tree_edge(representative_variant_edge))
 
@@ -1232,16 +1232,18 @@ class PangenomeGraph(nx.DiGraph):
             current_position += len(self.nodes[u]['sequence'])
             self.nodes[u]['position'] = current_position
             self.nodes[u]['distance_from_reference'] = 0
+            self.nodes[node_complement(u)]['position'] = current_position
+            self.nodes[node_complement(u)]['distance_from_reference'] = 0
 
         order = list(nx.topological_sort(self.reference_tree))
         for u in order[1:]: # skip the root
-            predecessor = self.parent_in_tree(u)
-            self.nodes[u]['position'] = np.maximum(self.nodes[u]['position'],
-                                               self.nodes[predecessor]['position'])
-            self.nodes[node_complement(u)]['position'] = self.nodes[u]['position']
-
             if self.nodes[u]['on_reference_path']:
                 continue
+
+            predecessor = self.parent_in_tree(u)
+            self.nodes[u]['position'] = self.nodes[predecessor]['position']
+            self.nodes[node_complement(u)]['position'] = self.nodes[u]['position']
+
             self.nodes[u]['distance_from_reference'] = (self.nodes[predecessor]['distance_from_reference'] +
                                                         len(self.nodes[u]['sequence']))
             self.nodes[node_complement(u)]['distance_from_reference'] = self.nodes[u]['distance_from_reference']
