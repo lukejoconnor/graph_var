@@ -20,7 +20,7 @@ def max_weight_dfs_tree(G: nx.DiGraph,
             dfs_tree.add_edge(parent, current_node)
 
         # Sort neighbors by descending edge weight
-        neighbors = sorted(G.edges(current_node, data=True), key=lambda x: x[2]['weight'], reverse=False)
+        neighbors = sorted(G.edges(current_node, data=True), key=lambda x: (x[2]['weight'], x[1]), reverse=False)
 
         # Last-added edges will be visited first
         for _, neighbor, _ in neighbors:
@@ -66,7 +66,7 @@ def assign_node_directions(G: nx.DiGraph,
             assert G_undirected.has_edge(parent, current_node)
 
         # Sort neighbors by descending edge weight
-        neighbors = sorted(G_undirected.edges(current_node, data=True), key=lambda x: x[2]['weight'], reverse=False)
+        neighbors = sorted(G_undirected.edges(current_node, data=True), key=lambda x: (x[2]['weight'], x[1]), reverse=False)
 
         # Last-added edges will be visited first
         for u, neighbor, _ in neighbors:
