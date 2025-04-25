@@ -85,16 +85,46 @@ def get_variants_for_bubbles_from_vcf(
     return bubble_within_variants, bubble_crossing_variants
 
 def get_interval_tree_from_bed(bed_file: str, chr_name: str) -> IntervalTree:
+    '''
+    Suppose that the input bed file only represents one specific type of region
+    :param bed_file:
+    :param chr_name:
+    :return:
+    '''
     interval_tree = IntervalTree()
     with open(bed_file, 'r') as bed:
         for line in bed:
             parts = line.strip().split('\t')
             if parts[0] != chr_name:
                 continue
-            start = int(parts[1])
-            end = int(parts[2])
+            # Convert 0-based to 1-based
+            start = int(parts[1]) + 1
+            end = int(parts[2]) + 1
             interval_tree.add(Interval(start, end))
     return interval_tree
+
+def get_interval_trees_from_bed(bed_file: str, chr_name: str) -> dict[str, IntervalTree]:
+    '''
+    Suppose that the input bed file with the fourth column specifying the region name
+    :param bed_file:
+    :param chr_name:
+    :return: Dict[region_name, IntervalTree]
+    '''
+    interval_tree_dict = dict()
+    with open(bed_file, 'r') as bed:
+        for line in bed:
+            parts = line.strip().split('\t')
+            if parts[0] != chr_name:
+                continue
+            # Convert 0-based to 1-based
+            start = int(parts[1]) + 1
+            end = int(parts[2]) + 1
+            name = parts[3]
+
+            if name not in interval_tree_dict:
+                interval_tree_dict[name] = IntervalTree()
+            interval_tree_dict[name].add(Interval(start, end))
+    return interval_tree_dict
 
 def read_vcf_line_by_line(vcf_path: str):
     with open(vcf_path, 'r') as vcf_file:

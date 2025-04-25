@@ -39,7 +39,7 @@ class PangenomeGraph(nx.DiGraph):
         if isinstance(node_or_edge, str):
             return node_or_edge[:-2] in self.termini
         elif isinstance(node_or_edge, tuple):
-            return self.is_terminal(node_or_edge[0]) or self.is_terminal(node_or_edge[1])
+            return self.is_terminal(self.edges[node_or_edge]['branch_point']) or self.is_terminal(node_or_edge[1])
         else:
             raise TypeError
 
@@ -54,7 +54,9 @@ class PangenomeGraph(nx.DiGraph):
         sorted_vars = [edge for edge in self.variant_edges if not self.is_terminal(edge)]
         sorted_vars = sorted(sorted_vars, key=lambda x:
                       (self.nodes[self.positive_variant_edge(x)[0]]['position'],
-                       int(self.nodes[self.positive_variant_edge(x)[0]]["distance_from_reference"])))
+                       int(self.nodes[self.positive_variant_edge(x)[0]]["distance_from_reference"]),
+                       int(self.nodes[self.positive_variant_edge(x)[1]]["distance_from_reference"]),
+                       self.positive_variant_edge(x)[0], self.positive_variant_edge(x)[1]))
         return sorted_vars
 
     @property
@@ -518,19 +520,17 @@ class PangenomeGraph(nx.DiGraph):
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
         meta_info = f'##fileformat=VCFv4.2\n'
         meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-        meta_info += f'##FORMAT=<ID=CR,Number=1,Type=String,Description="The REF count for haplotype.">\n'
-        meta_info += f'##FORMAT=<ID=CA,Number=1,Type=String,Description="The ALT count for haplotype.">\n'
-        meta_info += f'##INFO=<ID=OR,Number=1,Type=String,Description="Off-linear reference.">\n'
-        meta_info += f'##INFO=<ID=VT,Number=1,Type=Integer,Description="Variant type.">\n'
-        meta_info += f'##INFO=<ID=DR,Number=1,Type=Integer,Description="Distance of node u, v from reference.">\n'
-        meta_info += f'##INFO=<ID=RC,Number=1,Type=String,Description="The REF allele count.">\n'
-        meta_info += f'##INFO=<ID=AC,Number=1,Type=String,Description="The ALT allele count.">\n'
-        meta_info += f'##INFO=<ID=AN,Number=1,Type=String,Description="The non-missing value count.">\n'
-        meta_info += f'##INFO=<ID=PU,Number=1,Type=Integer,Description="Position of u (left node of variant edge)">\n'
-        meta_info += f'##INFO=<ID=PV,Number=1,Type=Integer,Description="Position of v (right node of variant edge)">\n'
-        meta_info += f'##INFO=<ID=TR_MOTIF,Number=1,Type=String,Description="Repeat motif">\n'
-        meta_info += f'##INFO=<ID=NIA,Number=0,Type=Flag,Description="Nearly identical alleles">\n'
-        meta_info += f'##contig=<ID=chr{chr_name[3:]}>\n'
+        meta_info += f'##FORMAT=<ID=CR,Number=.,Type=String,Description="The reference allele count for each sample\'s haplotypes">\n'
+        meta_info += f'##FORMAT=<ID=CA,Number=.,Type=String,Description="The alternative allele count for each sample\'s haplotypes">\n'
+        meta_info += f'##INFO=<ID=OR,Number=1,Type=String,Description="Off-linear reference allele">\n'
+        meta_info += f'##INFO=<ID=VT,Number=1,Type=String,Description="Variant type">\n'
+        meta_info += f'##INFO=<ID=DR,Number=2,Type=Integer,Description="Distance from reference (variant edge\'s two nodes)">\n'
+        meta_info += f'##INFO=<ID=RC,Number=1,Type=String,Description="The REF allele count">\n'
+        meta_info += f'##INFO=<ID=AC,Number=1,Type=String,Description="The ALT allele count">\n'
+        meta_info += f'##INFO=<ID=AN,Number=1,Type=String,Description="Total number of alleles in called genotypes">\n'
+        meta_info += f'##INFO=<ID=PV,Number=2,Type=Integer,Description="Position of variant edge\'s two nodes">\n'
+        meta_info += f'##INFO=<ID=TR_MOTIF,Number=1,Type=String,Description="Tandem repeat motif">\n'
+        meta_info += f'##INFO=<ID=NIA,Number=1,Type=Integer,Description="Nearly identical alleles (1=yes, 0=no)">\n'
 
         gfa_basename = os.path.basename(gfa_path)
         allele_count_dict = self.allele_count()
@@ -606,7 +606,6 @@ class PangenomeGraph(nx.DiGraph):
 
             for idx, (u, v) in tqdm(enumerate(self.sorted_variant_edges)):
                 representative_variant_edge = (u, v)
-                # representative_ref_edge = self.representative_edge(self.reference_tree_edge(representative_variant_edge))
 
                 if self.direction(u) == -1 and self.direction(v) == -1:
                     u, v = edge_complement((u, v))
@@ -620,7 +619,6 @@ class PangenomeGraph(nx.DiGraph):
                                                    alt_allele=alt_allele,
                                                    branch_point=branch_point)
                 motif = '.' if motif is None else motif
-
 
 
                 if check_degenerate:
@@ -652,7 +650,7 @@ class PangenomeGraph(nx.DiGraph):
                 # 'POS' 1
                 allele_data_list.append(str(edge_vcf_position))
                 # 'ID' 2
-                allele_data_list.append(''.join(tuple(map(lambda x: _node_recover(x), representative_variant_edge))))
+                allele_data_list.append(''.join(tuple(map(lambda x: _node_recover(x), edge))))
                 # 'REF' 3
                 allele_data_list.append(ref_allele)
                 # 'ALT' 4
@@ -667,16 +665,14 @@ class PangenomeGraph(nx.DiGraph):
                 allele_data_list.append('GT:CR:CA')
 
                 # 'sample1', 'sample2', ... 9 - end
-                AN = 0
                 for sample_name in subject_ids:
                     counts = sample_vcf_info_dict[sample_name][idx]
                     allele_data_list.append(counts)
-                    for count in counts.split('|'):
-                        if count != '.:.:.':
-                            AN += 1
 
                 RC = allele_count_dict[representative_variant_edge][0] if not self.is_inversion(edge) else '.'
                 AC = allele_count_dict[representative_variant_edge][1]
+
+                AN = RC + AC if not self.is_inversion(edge) else '.'
 
                 INFO = (f'OR={new_ref};'
                         f'VT={VT};'
@@ -684,8 +680,7 @@ class PangenomeGraph(nx.DiGraph):
                         f'RC={RC};'
                         f'AC={AC};'
                         f'AN={AN};'
-                        f'PU={int(self.nodes[u]["position"])};'
-                        f'PV={int(self.nodes[v]["position"])};'
+                        f'PV={int(self.nodes[u]["position"])},{int(self.nodes[v]["position"])};'
                         f'TR_MOTIF={motif}')
 
                 if nearly_identical_alleles(ref_allele, alt_allele):
@@ -719,10 +714,12 @@ class PangenomeGraph(nx.DiGraph):
                 cr_0 = sample_cr_dict[haplotype_name].get(representative_ref_edge, 0) if not self.is_inversion(edge) else '.'
                 ca_0 = sample_ca_dict[haplotype_name].get(representative_variant_edge, 0)
 
-                counts = (f"{int(bool(ca_0))}:{cr_0}:{ca_0}"
-                          if representative_variant_edge not in sample_missing_dict[haplotype_name] else '.:.:.')
-                # counts = (f"{int(bool(ca_0))}:{cr_0}:{ca_0}"
-                #           if cr_0 != 0 or ca_0 != 0 else '.:.:.')
+                count = ['.', '.', '.']
+                if representative_variant_edge not in sample_missing_dict[haplotype_name]:
+                    count[0] = int(bool(ca_0)) if cr_0 != 0 or ca_0 != 0 else '.'
+                    count[1] = cr_0
+                    count[2] = ca_0
+                counts = f"{count[0]}:{count[1]}:{count[2]}"
             else:
                 haplotype1_name = sample_name + '_1'
                 haplotype2_name = sample_name + '_2'
@@ -733,15 +730,18 @@ class PangenomeGraph(nx.DiGraph):
                 cr_2 = sample_cr_dict[haplotype2_name].get(representative_ref_edge, 0) if not self.is_inversion(edge) else '.'
                 ca_2 = sample_ca_dict[haplotype2_name].get(representative_variant_edge, 0)
 
-                count_1 = (f"{int(bool(ca_1))}:{cr_1}:{ca_1}"
-                           if representative_variant_edge not in sample_missing_dict[haplotype1_name] else '.:.:.')
-                count_2 = (f"{int(bool(ca_2))}:{cr_2}:{ca_2}"
-                           if representative_variant_edge not in sample_missing_dict[haplotype2_name] else '.:.:.')
-                # count_1 = (f"{int(bool(ca_1))}:{cr_1}:{ca_1}"
-                #            if cr_1 != 0 or ca_1 != 0 else '.:.:.')
-                # count_2 = (f"{int(bool(ca_2))}:{cr_2}:{ca_2}"
-                #            if cr_2 != 0 or ca_2 != 0 else '.:.:.')
-                counts = f"{count_1}|{count_2}"
+                count_1 = ['.', '.', '.']
+                if representative_variant_edge not in sample_missing_dict[haplotype1_name]:
+                    count_1[0] = int(bool(ca_1)) if cr_1 != 0 or ca_1 != 0 else '.'
+                    count_1[1] = cr_1
+                    count_1[2] = ca_1
+
+                count_2 = ['.', '.', '.']
+                if representative_variant_edge not in sample_missing_dict[haplotype2_name]:
+                    count_2[0] = int(bool(ca_2)) if cr_2 != 0 or ca_2 != 0 else '.'
+                    count_2[1] = cr_2
+                    count_2[2] = ca_2
+                counts = f"{count_1[0]}|{count_2[0]}:{count_1[1]},{count_2[1]}:{count_1[2]},{count_2[2]}"
             sample_vcf_info.append(counts)
         return sample_vcf_info
 
