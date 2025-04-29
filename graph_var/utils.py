@@ -32,7 +32,11 @@ def _flip(s):
         raise ValueError()
 
 def _node_recover(node_id):
-    node, direction = node_id.split('_')
+    if len(node_id.split('_')) == 2:
+        node, direction = node_id.split('_')
+    else:
+        terminus, node, direction = node_id.split('_')
+        node = 'start' + node.title() if terminus == '+' else 'end' + node.title()
     if direction == '+':
         return '>'+node
     elif direction == '-':
