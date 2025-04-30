@@ -723,7 +723,7 @@ class PangenomeGraph(nx.DiGraph):
                 ca_0 = sample_ca_dict[haplotype_name].get(representative_variant_edge, 0)
 
                 count = ['.', '.', '.']
-                if representative_variant_edge not in sample_missing_dict[haplotype_name]:
+                if haplotype_name in sample_missing_dict and representative_variant_edge not in sample_missing_dict[haplotype_name]:
                     count[0] = int(bool(ca_0)) if cr_0 != 0 or ca_0 != 0 else '.'
                     count[1] = cr_0
                     count[2] = ca_0
@@ -739,13 +739,13 @@ class PangenomeGraph(nx.DiGraph):
                 ca_2 = sample_ca_dict[haplotype2_name].get(representative_variant_edge, 0)
 
                 count_1 = ['.', '.', '.']
-                if representative_variant_edge not in sample_missing_dict[haplotype1_name]:
+                if haplotype1_name in sample_missing_dict and representative_variant_edge not in sample_missing_dict[haplotype1_name]:
                     count_1[0] = int(bool(ca_1)) if cr_1 != 0 or ca_1 != 0 else '.'
                     count_1[1] = cr_1
                     count_1[2] = ca_1
 
                 count_2 = ['.', '.', '.']
-                if representative_variant_edge not in sample_missing_dict[haplotype2_name]:
+                if haplotype2_name in sample_missing_dict and representative_variant_edge not in sample_missing_dict[haplotype2_name]:
                     count_2[0] = int(bool(ca_2)) if cr_2 != 0 or ca_2 != 0 else '.'
                     count_2[1] = cr_2
                     count_2[2] = ca_2
