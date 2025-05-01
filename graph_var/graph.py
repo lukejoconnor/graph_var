@@ -124,6 +124,8 @@ class PangenomeGraph(nx.DiGraph):
         :param nodeinfo_file: path to a previously-computed .nodeinfo file, to avoid re-doing work
         :param compressed: set to True in order to read a gzipped .gfa file
         """
+        if log_path:
+            log_action(log_path, f"Start constructing pangenome graph")
 
         if not os.path.exists(gfa_file):
             raise FileNotFoundError(gfa_file)
@@ -137,7 +139,6 @@ class PangenomeGraph(nx.DiGraph):
         walk_start_nodes = []
         walk_end_nodes = []
 
-        start_time = time.time()
         print("Reading gfa file")
         for parts in read_gfa_line_by_line(gfa_file, compressed=compressed):
             if parts[0] == 'S':
@@ -161,51 +162,45 @@ class PangenomeGraph(nx.DiGraph):
                     G.compute_edge_weights([walk])
 
         if log_path:
-            log_action(log_path, start_time, f"Reading gfa file: {gfa_basename}")
+            log_action(log_path, f"Reading gfa file: {gfa_basename}")
 
         print("Num of binodes:", (len(G.nodes) / 2))
         print("Num of biedges:", (len(G.edges) / 2))
 
         if nodeinfo_file:
-            start_time = time.time()
             print("Reading nodeinfo file")
             G.read_nodeinfo(nodeinfo_file)
             if log_path:
-                log_action(log_path, start_time, f"Reading nodeinfo file: {gfa_basename}")
+                log_action(log_path, f"Reading nodeinfo file: {gfa_basename}")
         else:
-            start_time = time.time()
             print("Assigning node directions")
             assign_node_directions(G, G.reference_path)
             if log_path:
-                log_action(log_path, start_time, f"Assigning node directions: {gfa_basename}")
+                log_action(log_path, f"Assigning node directions: {gfa_basename}")
 
         G.add_terminal_nodes(walk_start_nodes=walk_start_nodes, walk_end_nodes=walk_end_nodes)
         if edgeinfo_file:
-            start_time = time.time()
             print("Reading edgeinfo file")
             G.read_edgeinfo(edgeinfo_file)
             if log_path:
-                log_action(log_path, start_time, f"Reading edgeinfo file: {gfa_basename}")
+                log_action(log_path, f"Reading edgeinfo file: {gfa_basename}")
         else:
-            start_time = time.time()
             print("Computing reference tree")
             G.compute_reference_tree()
             if log_path:
-                log_action(log_path, start_time, f"Computing reference tree: {gfa_basename}")
+                log_action(log_path, f"Computing reference tree: {gfa_basename}")
 
-            start_time = time.time()
             print("Computing branch points")
             G.annotate_branch_points()
             if log_path:
-                log_action(log_path, start_time, f"Computing branch points: {gfa_basename}")
+                log_action(log_path, f"Computing branch points: {gfa_basename}")
 
         if not nodeinfo_file:
-            start_time = time.time()
             print("Computing positions")
             G.compute_binode_positions()
             G.compute_binode_right_positions()
             if log_path:
-                log_action(log_path, start_time, f"Computing positions: {gfa_basename}")
+                log_action(log_path, f"Computing positions: {gfa_basename}")
 
         return G
 
@@ -521,6 +516,8 @@ class PangenomeGraph(nx.DiGraph):
         :param check_degenerate: whether to exclude variants whose ref and alt alleles are identical
         :return:
         """
+        if log_path:
+            log_action(log_path, f"Start generating vcf")
         # 'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'sample1', 'sample2', ...
         meta_info = f'##fileformat=VCFv4.2\n'
         meta_info += f'##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
@@ -546,7 +543,6 @@ class PangenomeGraph(nx.DiGraph):
 
         sample_vcf_info_dict = dict()
 
-        start_time = time.time()
         print("Computing genotype for haplotypes")
         pre_sample_name = None
         # Memory efficient way to read gfa data
@@ -598,14 +594,13 @@ class PangenomeGraph(nx.DiGraph):
         sample_lc_dict.clear()
 
         if log_path:
-            log_action(log_path, start_time, f"Reading gfa, computing genotype and missing variants for haplotypes: {gfa_basename}")
+            log_action(log_path, f"Reading gfa, computing genotype and missing variants for haplotypes: {gfa_basename}")
 
         # subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys() if not sample_name.startswith("GRCh38")})
         subject_ids = sorted(sample_vcf_info_dict.keys())
 
         header_names = list(self.vcf_attribute_names) + subject_ids
 
-        start_time = time.time()
         print("Writing vcf file")
         with open(vcf_filename, 'w') as file:
             file.write(meta_info)
@@ -699,7 +694,7 @@ class PangenomeGraph(nx.DiGraph):
 
                 file.write('\t'.join(allele_data_list) + '\n')
         if log_path:
-            log_action(log_path, start_time, f"Writing vcf: {gfa_basename}")
+            log_action(log_path, f"Writing vcf: {gfa_basename}")
 
     def get_sample_vcf_info(self,
                             sample_name,
