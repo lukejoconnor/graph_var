@@ -191,6 +191,21 @@ def write_digraph_to_gfa(G: nx.DiGraph, filename: str):
             v_symbol = '+' if G.nodes[v]['direction'] == 1 else '-'
             gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
 
+def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
+    with open(filename, 'wb') as gfa_file:
+        for node in G.reference_tree.nodes(data=False):
+            node_id, symbol = get_node_id_symbol(node)
+            symbol = '+' if G.nodes[node]['direction'] == 1 else '-'
+            gfa_file.write(f'S\t{node_id}\t{G.nodes[node].get("sequence", "*")}\n'.encode())
+
+        for edge in G.reference_tree.edges(data=False):
+            u, v = edge
+            u_id, _ = get_node_id_symbol(u)
+            u_symbol = '+' if G.nodes[u]['direction'] == 1 else '-'
+            v_id, _ = get_node_id_symbol(v)
+            v_symbol = '+' if G.nodes[v]['direction'] == 1 else '-'
+            gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
+
 def write_node_sequence_to_csv(G: PangenomeGraph, filename: str):
     nodes = sorted({node[:-2] for node in list(G.nodes)})
     sequences = [G.nodes[G.positive_node(node+'_+')]['sequence'] for node in nodes]

@@ -82,7 +82,7 @@ class PangenomeGraph(nx.DiGraph):
         if type(node_or_edge) is tuple:
             if not self.has_edge(*node_or_edge):
                 raise ValueError("Graph does not have edge {node_or_edge}")
-            return (self.nodes[node_or_edge[0]]['on_reference_path'] or self.nodes[node_or_edge[1]]['on_reference_path'])
+            return self.nodes[node_or_edge[1]]['on_reference_path']
         elif type(node_or_edge) is str:
             if not self.has_node(node_or_edge):
                 raise ValueError("Graph does not have node {node_or_edge}")
@@ -991,7 +991,7 @@ class PangenomeGraph(nx.DiGraph):
         edge = self.positive_variant_edge(edge)
         u, v = edge
 
-        if not prepend_letter_to_alleles:
+        if prepend_letter_to_alleles is None:
             ref_allele, alt_allele, last_letter_of_branch_point, branch_point = self.ref_alt_alleles(edge)
             prepend_letter_to_alleles = (len(ref_allele) == 0 or len(alt_allele) == 0)
 
