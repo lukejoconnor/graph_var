@@ -60,10 +60,8 @@ def get_variants_for_bubbles_from_vcf(
     bubble_within_variants = defaultdict(set)
     bubble_crossing_variants = defaultdict(set)
 
-    vcf_df = read_vcf_to_dataframe(vcf_path)
-
-    for i in range(len(vcf_df)):
-        edge = vcf_df.loc[i, 'ID']
+    for row in read_vcf_line_by_line(vcf_path):
+        edge = row['ID']
         u, v = extract_bubble_ids(edge, symbol=True)
         edge = (u, v)
 
@@ -87,16 +85,62 @@ def get_variants_for_bubbles_from_vcf(
     return bubble_within_variants, bubble_crossing_variants
 
 def get_interval_tree_from_bed(bed_file: str, chr_name: str) -> IntervalTree:
+    '''
+    Suppose that the input bed file only represents one specific type of region
+    :param bed_file:
+    :param chr_name:
+    :return:
+    '''
     interval_tree = IntervalTree()
     with open(bed_file, 'r') as bed:
         for line in bed:
             parts = line.strip().split('\t')
             if parts[0] != chr_name:
                 continue
-            start = int(parts[1])
-            end = int(parts[2])
+            # Convert 0-based to 1-based
+            start = int(parts[1]) + 1
+            end = int(parts[2]) + 1
             interval_tree.add(Interval(start, end))
     return interval_tree
+
+def get_interval_trees_from_bed(bed_file: str, chr_name: str) -> dict[str, IntervalTree]:
+    '''
+    Suppose that the input bed file with the fourth column specifying the region name
+    :param bed_file:
+    :param chr_name:
+    :return: Dict[region_name, IntervalTree]
+    '''
+    interval_tree_dict = dict()
+    with open(bed_file, 'r') as bed:
+        for line in bed:
+            parts = line.strip().split('\t')
+            if parts[0] != chr_name:
+                continue
+            # Convert 0-based to 1-based
+            start = int(parts[1]) + 1
+            end = int(parts[2]) + 1
+            name = parts[3]
+
+            if name not in interval_tree_dict:
+                interval_tree_dict[name] = IntervalTree()
+            interval_tree_dict[name].add(Interval(start, end))
+    return interval_tree_dict
+
+def read_vcf_line_by_line(vcf_path: str):
+    with open(vcf_path, 'r') as vcf_file:
+        header = None
+        for line in vcf_file:
+            if line.startswith('##'):
+                continue
+
+            if line.startswith('#'):
+                header = line.strip().split('\t')
+                continue
+
+            parts = line.strip().split('\t')
+            assert len(parts) == len(header), f"Invalid VCF format: {line}"
+            rec_dict = {header[i]: parts[i] for i in range(len(header))}
+            yield rec_dict
 
 def read_vcf_to_dataframe(vcf_path: str, return_meta_info: bool = False):
     records = []
@@ -132,28 +176,34 @@ def get_info_dict(info_str: str) -> Dict:
     info_dict = {x.split('=')[0]: x.split('=')[1] for x in info_list if x != ''}
     return info_dict
 
-def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
-    with open(filename, 'wb') as gfa_file:
-        for node in G.reference_tree.nodes(data=False):
-            node_id, symbol = get_node_id_symbol(node)
-            gfa_file.write(f'S\t{node_id}\t{G.nodes[node].get("sequence", "*")}\n'.encode())
-
-        for edge in G.reference_tree.edges(data=False):
-            u, v = edge
-            u_id, u_symbol = get_node_id_symbol(u)
-            v_id, v_symbol = get_node_id_symbol(v)
-            gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
-
 def write_digraph_to_gfa(G: nx.DiGraph, filename: str):
     with open(filename, 'wb') as gfa_file:
         for node in G.nodes(data=False):
-            node_id, symbol = get_node_id_symbol(node)
+            node_id, _ = get_node_id_symbol(node)
+            symbol = '+' if G.nodes[node]['direction'] == 1 else '-'
             gfa_file.write(f'S\t{node_id}\t{G.nodes[node].get("sequence", "*")}\n'.encode())
 
         for edge in G.edges(data=False):
             u, v = edge
-            u_id, u_symbol = get_node_id_symbol(u)
-            v_id, v_symbol = get_node_id_symbol(v)
+            u_id, _ = get_node_id_symbol(u)
+            u_symbol = '+' if G.nodes[u]['direction'] == 1 else '-'
+            v_id, _ = get_node_id_symbol(v)
+            v_symbol = '+' if G.nodes[v]['direction'] == 1 else '-'
+            gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
+
+def write_dfs_tree_to_gfa(G: PangenomeGraph, filename: str):
+    with open(filename, 'wb') as gfa_file:
+        for node in G.reference_tree.nodes(data=False):
+            node_id, symbol = get_node_id_symbol(node)
+            symbol = '+' if G.nodes[node]['direction'] == 1 else '-'
+            gfa_file.write(f'S\t{node_id}\t{G.nodes[node].get("sequence", "*")}\n'.encode())
+
+        for edge in G.reference_tree.edges(data=False):
+            u, v = edge
+            u_id, _ = get_node_id_symbol(u)
+            u_symbol = '+' if G.nodes[u]['direction'] == 1 else '-'
+            v_id, _ = get_node_id_symbol(v)
+            v_symbol = '+' if G.nodes[v]['direction'] == 1 else '-'
             gfa_file.write(f'L\t{u_id}\t{u_symbol}\t{v_id}\t{v_symbol}\t0M\n'.encode())
 
 def write_node_sequence_to_csv(G: PangenomeGraph, filename: str):
@@ -486,7 +536,7 @@ def write_bubble_summary_result(chr_name: str,
 
     print("Writing bubble summary to CSV...")
     count_summary_df = pd.DataFrame({
-         "Bubble_ids": bubble_list,
+         "Bubble": bubble_list,
          "Level": level_list,
          "Total_count": length_total,
          #"AC_sum": AC_sum,
