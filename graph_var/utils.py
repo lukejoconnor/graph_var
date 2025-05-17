@@ -53,7 +53,7 @@ def _node_convert(node_id):
     else:
         raise ValueError()
 
-def read_gfa(filename, compressed=False):
+def read_gfa(filename, compressed=False, ref_name='GRCh38'):
   nodes = []
   sequences = []
   edges = []
@@ -79,7 +79,7 @@ def read_gfa(filename, compressed=False):
           edges.append(edge)
       elif parts[0] == 'W':
           if not hit_reference:
-              if parts[1] == 'GRCh38':
+              if parts[1] == ref_name:
                   hit_reference = True
               else:
                   reference_index += 1
@@ -111,7 +111,7 @@ def read_gfa(filename, compressed=False):
 
   return data_dict
 
-def read_gfa_line_by_line(filename: str, compressed: bool = False):
+def read_gfa_line_by_line(filename: str, compressed: bool = False, ref_name='GRCh38'):
     pattern = r'\w+|[<>]'
 
     if compressed:
@@ -129,7 +129,7 @@ def read_gfa_line_by_line(filename: str, compressed: bool = False):
             # yield 'L', edge
             yield (parts[0], edge)
         elif parts[0] == 'W':
-            if parts[1] == 'GRCh38':
+            if parts[1] == ref_name:
                 hit_reference = True
             else:
                 hit_reference = False

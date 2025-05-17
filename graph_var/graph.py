@@ -112,6 +112,7 @@ class PangenomeGraph(nx.DiGraph):
     @classmethod
     def from_gfa_line_by_line(cls,
                  gfa_file: str,
+                 ref_name: str = 'GRCh38',
                  edgeinfo_file: str = None,
                  nodeinfo_file: str = None,
                  compressed: bool = False,
@@ -140,7 +141,7 @@ class PangenomeGraph(nx.DiGraph):
         walk_end_nodes = []
 
         print("Reading gfa file")
-        for parts in read_gfa_line_by_line(gfa_file, compressed=compressed):
+        for parts in read_gfa_line_by_line(gfa_file, compressed=compressed, ref_name=ref_name):
             if parts[0] == 'S':
                 binode, sequence = parts[1], parts[2]
                 G.add_binode(binode, sequence)
@@ -154,6 +155,7 @@ class PangenomeGraph(nx.DiGraph):
                 # sample_name = parts[2]
                 walk = parts[3]
                 if hit_reference:
+                    assert not G.reference_path, "Reference path already exists"
                     G.add_reference_path(walk)
 
                 walk_start_nodes.append(walk[0])
@@ -207,6 +209,7 @@ class PangenomeGraph(nx.DiGraph):
     @classmethod
     def from_gfa(cls,
                  gfa_file: str,
+                 ref_name: str = 'GRCh38',
                  reference_path_index: int = None,
                  edgeinfo_file: str = None,
                  nodeinfo_file: str = None,
@@ -231,7 +234,7 @@ class PangenomeGraph(nx.DiGraph):
             if not os.path.exists(edgeinfo_file):
                 raise FileNotFoundError(edgeinfo_file)
 
-        data_dict = read_gfa(gfa_file, compressed=compressed)
+        data_dict = read_gfa(gfa_file, compressed=compressed, ref_name=ref_name)
 
         binodes = data_dict['nodes']
         biedges = data_dict['edges']
