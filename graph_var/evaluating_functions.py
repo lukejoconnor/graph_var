@@ -11,6 +11,7 @@ from collections import defaultdict
 import pandas as pd
 import ast
 import networkx as nx
+import gzip
 
 # Utility functions ----------------------------------------------------------------------------------------------------
 def get_node_id_symbol(node: str) -> Tuple[str, str]:
@@ -126,42 +127,49 @@ def get_interval_trees_from_bed(bed_file: str, chr_name: str) -> dict[str, Inter
             interval_tree_dict[name].add(Interval(start, end))
     return interval_tree_dict
 
-def read_vcf_line_by_line(vcf_path: str):
-    with open(vcf_path, 'r') as vcf_file:
-        header = None
-        for line in vcf_file:
-            if line.startswith('##'):
-                continue
+def read_vcf_line_by_line(vcf_path: str, compressed: bool = False):
+    if compressed:
+        vcf_file = gzip.open(vcf_path, 'rt')
+    else:
+        vcf_file = open(vcf_path, 'r')
 
-            if line.startswith('#'):
-                header = line.strip().split('\t')
-                continue
+    header = None
+    for line in vcf_file:
+        if line.startswith('##'):
+            continue
 
-            parts = line.strip().split('\t')
-            assert len(parts) == len(header), f"Invalid VCF format: {line}"
-            rec_dict = {header[i]: parts[i] for i in range(len(header))}
-            yield rec_dict
+        if line.startswith('#'):
+            header = line.strip().split('\t')
+            continue
 
-def read_vcf_to_dataframe(vcf_path: str, return_meta_info: bool = False):
+        parts = line.strip().split('\t')
+        assert len(parts) == len(header), f"Invalid VCF format: {line}"
+        rec_dict = {header[i]: parts[i] for i in range(len(header))}
+        yield rec_dict
+
+def read_vcf_to_dataframe(vcf_path: str, return_meta_info: bool = False, compressed: bool = False):
     records = []
     meta_info = []
 
-    # Loop through each record in the VCF file
-    with open(vcf_path, 'r') as vcf_file:
-        header = None
-        for line in vcf_file:
-            if line.startswith('##'):
-                meta_info.append(line)
-                continue
+    if compressed:
+        vcf_file = gzip.open(vcf_path, 'rt')
+    else:
+        vcf_file = open(vcf_path, 'r')
 
-            if line.startswith('#'):
-                header = line.strip().split('\t')
-                continue
+    header = None
+    for line in vcf_file:
+        if line.startswith('##'):
+            meta_info.append(line)
+            continue
 
-            parts = line.strip().split('\t')
-            assert len(parts) == len(header), f"Invalid VCF format: {line}"
-            rec_dict = {header[i]: parts[i] for i in range(len(header))}
-            records.append(rec_dict)
+        if line.startswith('#'):
+            header = line.strip().split('\t')
+            continue
+
+        parts = line.strip().split('\t')
+        assert len(parts) == len(header), f"Invalid VCF format: {line}"
+        rec_dict = {header[i]: parts[i] for i in range(len(header))}
+        records.append(rec_dict)
 
     # Convert to DataFrame
     df = pd.DataFrame(records)
