@@ -505,6 +505,7 @@ class PangenomeGraph(nx.DiGraph):
                   gfa_path: str,
                   vcf_filename: str,
                   chr_name: str,
+                  compressed: bool = True,
                   exclude_terminus: bool = True,
                   size_threshold: int = None,
                   check_degenerate: bool = False,
@@ -549,7 +550,7 @@ class PangenomeGraph(nx.DiGraph):
         print("Computing genotype for haplotypes")
         pre_sample_name = None
         # Memory efficient way to read gfa data
-        for parts in read_gfa_line_by_line(gfa_path):
+        for parts in read_gfa_line_by_line(gfa_path, compressed=compressed):
             if parts[0] != 'W':
                 continue
             haplotype_name = parts[2]
