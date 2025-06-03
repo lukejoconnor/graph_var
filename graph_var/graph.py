@@ -1,6 +1,4 @@
-import sys
 from functools import lru_cache, cached_property
-from linecache import cache
 from math import inf
 import networkx as nx
 import numpy as np
@@ -11,7 +9,6 @@ from .utils import (
     edge_complement,
     sequence_complement,
     walk_complement,
-    group_walks_by_name,
     nearly_identical_alleles,
     _node_recover,
     merge_dicts,
@@ -20,9 +17,9 @@ from .utils import (
 from .search_tree import assign_node_directions, max_weight_dfs_tree
 import os
 import time
-from collections import defaultdict, Counter
+from collections import defaultdict
 from tqdm import tqdm
-from typing import Any, Union, Optional
+from typing import Any, Optional
 
 class PangenomeGraph(nx.DiGraph):
     reference_tree: nx.classes.digraph.DiGraph
@@ -115,7 +112,6 @@ class PangenomeGraph(nx.DiGraph):
                  ref_name: str = 'GRCh38',
                  edgeinfo_file: str = None,
                  nodeinfo_file: str = None,
-                 compressed: bool = False,
                  log_path: str = None
                  ):
         """
@@ -123,7 +119,6 @@ class PangenomeGraph(nx.DiGraph):
         :param gfa_file: path to a file name ending in .gfa
         :param edgeinfo_file: path to a previously-computed .edgeinfo file, to avoid re-doing work
         :param nodeinfo_file: path to a previously-computed .nodeinfo file, to avoid re-doing work
-        :param compressed: set to True in order to read a gzipped .gfa file
         """
         if log_path:
             log_action(log_path, f"Start constructing pangenome graph")
@@ -141,7 +136,7 @@ class PangenomeGraph(nx.DiGraph):
         walk_end_nodes = []
 
         print("Reading gfa file")
-        for parts in read_gfa_line_by_line(gfa_file, compressed=compressed, ref_name=ref_name):
+        for parts in read_gfa_line_by_line(gfa_file, ref_name=ref_name):
             if parts[0] == 'S':
                 binode, sequence = parts[1], parts[2]
                 G.add_binode(binode, sequence)
@@ -213,8 +208,7 @@ class PangenomeGraph(nx.DiGraph):
                  reference_path_index: int = None,
                  edgeinfo_file: str = None,
                  nodeinfo_file: str = None,
-                 return_walks: bool = False,
-                 compressed: bool = False
+                 return_walks: bool = False
                  ):
         """
         Reads a .gfa file into a PangenomeGraph object.
@@ -225,8 +219,7 @@ class PangenomeGraph(nx.DiGraph):
         :param nodeinfo_file: path to a previously-computed .nodeinfo file, to avoid re-doing work
         :param return_walks: if True, return a tuple (graph_object, walks, walk_names) where the walks are
         read from the .gfa file; if False, return graph_object
-        :param compressed: set to True in order to read a gzipped .gfa file
-        """
+            """
 
         if not os.path.exists(gfa_file):
             raise FileNotFoundError(gfa_file)
@@ -234,7 +227,7 @@ class PangenomeGraph(nx.DiGraph):
             if not os.path.exists(edgeinfo_file):
                 raise FileNotFoundError(edgeinfo_file)
 
-        data_dict = read_gfa(gfa_file, compressed=compressed, ref_name=ref_name)
+        data_dict = read_gfa(gfa_file, ref_name=ref_name)
 
         binodes = data_dict['nodes']
         biedges = data_dict['edges']
@@ -550,7 +543,7 @@ class PangenomeGraph(nx.DiGraph):
         print("Computing genotype for haplotypes")
         pre_sample_name = None
         # Memory efficient way to read gfa data
-        for parts in read_gfa_line_by_line(gfa_path, compressed=compressed):
+        for parts in read_gfa_line_by_line(gfa_path):
             if parts[0] != 'W':
                 continue
             haplotype_name = parts[2]
@@ -1463,7 +1456,9 @@ class PangenomeGraph(nx.DiGraph):
         Otherwise, returns None.
         """
         import sys
-        sys.setrecursionlimit(len(self.reference_tree.nodes))
+        recursion_limit = max(sys.getrecursionlimit(), len(self.reference_tree.nodes))
+        sys.setrecursionlimit(recursion_limit)
+
         if self.is_inversion(variant_edge):
             return None
         variant_edge = self.positive_variant_edge(variant_edge)

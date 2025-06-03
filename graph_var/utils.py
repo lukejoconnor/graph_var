@@ -53,7 +53,7 @@ def _node_convert(node_id):
     else:
         raise ValueError()
 
-def read_gfa(filename, compressed=False, ref_name='GRCh38'):
+def read_gfa(filename, ref_name='GRCh38'):
   nodes = []
   sequences = []
   edges = []
@@ -65,7 +65,7 @@ def read_gfa(filename, compressed=False, ref_name='GRCh38'):
 
   data_dict = {}
 
-  if compressed:
+  if filename.endswith('.gz'):
       file = gzip.open(filename, 'rt')
   else:
       file = open(filename, 'r')
@@ -111,10 +111,10 @@ def read_gfa(filename, compressed=False, ref_name='GRCh38'):
 
   return data_dict
 
-def read_gfa_line_by_line(filename: str, compressed: bool = False, ref_name='GRCh38'):
+def read_gfa_line_by_line(filename: str, ref_name='GRCh38'):
     pattern = r'\w+|[<>]'
 
-    if compressed:
+    if filename.endswith('.gz'):
         file = gzip.open(filename, 'rt')
     else:
         file = open(filename, 'r')
