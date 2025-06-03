@@ -417,7 +417,7 @@ class PangenomeGraph(nx.DiGraph):
                   ) -> None:
         """
         Writes the variant call format (vcf) file.
-        :param gfa_path: the .gfa file, from which walks are read
+        :param gfa_path: the .gfa file, from which walks are read, or None to skip writing genotypes
         :param vcf_filename: the output vcf file path
         :param chr_name: the chromosome name in the first column of output vcf file
         :param size_threshold: the truncation length of ref and alt sequence
