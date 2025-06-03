@@ -201,94 +201,6 @@ class PangenomeGraph(nx.DiGraph):
 
         return G
 
-    @classmethod
-    def from_gfa(cls,
-                 gfa_file: str,
-                 ref_name: str = 'GRCh38',
-                 reference_path_index: int = None,
-                 edgeinfo_file: str = None,
-                 nodeinfo_file: str = None,
-                 return_walks: bool = False
-                 ):
-        """
-        Reads a .gfa file into a PangenomeGraph object.
-        :param gfa_file: path to a file name ending in .gfa
-        :param reference_path_index: one of the walks in the gfa file can be specified as the reference path; this
-        is the index of that walk. If unspecified, the first walk whose name is 'GRCh38' is used, if any.
-        :param edgeinfo_file: path to a previously-computed .edgeinfo file, to avoid re-doing work
-        :param nodeinfo_file: path to a previously-computed .nodeinfo file, to avoid re-doing work
-        :param return_walks: if True, return a tuple (graph_object, walks, walk_names) where the walks are
-        read from the .gfa file; if False, return graph_object
-            """
-
-        if not os.path.exists(gfa_file):
-            raise FileNotFoundError(gfa_file)
-        if edgeinfo_file:
-            if not os.path.exists(edgeinfo_file):
-                raise FileNotFoundError(edgeinfo_file)
-
-        data_dict = read_gfa(gfa_file, ref_name=ref_name)
-
-        binodes = data_dict['nodes']
-        biedges = data_dict['edges']
-        walks = data_dict['walks']
-        walk_sample_names = data_dict['walk_sample_names']
-        sequences = data_dict['sequences']
-        reference_index = data_dict['reference_index']
-
-        if reference_path_index is not None:
-            reference_index = reference_path_index
-
-        print("Reference walk:", reference_index)
-        print("Num of binodes:", len(binodes))
-        print("Num of biedges:", len(biedges))
-
-        # Initialize an instance of the class
-        G = cls()
-
-        for binode, sequence in zip(binodes, sequences):
-            G.add_binode(binode, sequence)
-
-        for biedge in biedges:
-            node1 = biedge[0] + '_' + biedge[2]
-            node2 = biedge[1] + '_' + biedge[3]
-            G.add_biedge(node1, node2)
-
-        if reference_index >= len(walks) or reference_index < 0:
-            raise ValueError(f'Reference walk index should be an integer >= 0')
-
-        G.add_reference_path(walks[reference_index])
-
-        if nodeinfo_file:
-            print("Reading nodeinfo file")
-            G.read_nodeinfo(nodeinfo_file)
-        else:
-            print("Assigning node directions")
-            assign_node_directions(G, G.reference_path)
-
-        walk_start_nodes = [walk[0] for walk in walks]
-        walk_end_nodes = [walk[-1] for walk in walks]
-        G.add_terminal_nodes(walk_start_nodes=walk_start_nodes, walk_end_nodes=walk_end_nodes)
-
-        if edgeinfo_file:
-            print("Reading edgeinfo file")
-            G.read_edgeinfo(edgeinfo_file)
-        else:
-            print("Computing reference tree")
-            G.compute_edge_weights(walks)
-            G.compute_reference_tree()
-            print("Computing branch points")
-            G.annotate_branch_points()
-
-        if not nodeinfo_file:
-            print("Computing positions")
-            G.compute_binode_positions()
-            G.compute_binode_right_positions()
-
-        if return_walks:
-            return G, walks, walk_sample_names
-
-        return G
 
     def __init__(self,
                  directed_graph: nx.classes.digraph.DiGraph = None,
@@ -495,10 +407,9 @@ class PangenomeGraph(nx.DiGraph):
                               if data['is_representative'] and not data['is_in_tree']}
 
     def write_vcf(self,
-                  gfa_path: str,
+                  gfa_path: Optional[str],
                   vcf_filename: str,
                   chr_name: str,
-                  compressed: bool = True,
                   exclude_terminus: bool = True,
                   size_threshold: int = None,
                   check_degenerate: bool = False,
@@ -531,7 +442,6 @@ class PangenomeGraph(nx.DiGraph):
         meta_info += f'##INFO=<ID=NIA,Number=1,Type=Integer,Description="Nearly identical alleles (1=yes, 0=no)">\n'
         meta_info += f'##contig=<ID={chr_name}>\n'
 
-        gfa_basename = os.path.basename(gfa_path)
         allele_count_dict = self.allele_count()
 
         sample_cr_dict = defaultdict(dict)
@@ -540,14 +450,16 @@ class PangenomeGraph(nx.DiGraph):
 
         sample_vcf_info_dict = dict()
 
-        print("Computing genotype for haplotypes")
-        pre_sample_name = None
+        sample_ids = []
         # Memory efficient way to read gfa data
-        for parts in read_gfa_line_by_line(gfa_path):
-            if parts[0] != 'W':
-                continue
-            haplotype_name = parts[2]
-            sample_name = parts[2].split('_')[0]
+        if gfa_path:
+            print("Computing genotype for haplotypes")
+            pre_sample_name = None
+            for parts in read_gfa_line_by_line(gfa_path):
+                if parts[0] != 'W':
+                    continue
+                haplotype_name = parts[2]
+                sample_name = parts[2].split('_')[0]
             if pre_sample_name is not None and sample_name != pre_sample_name:
                 # print("Sample:", pre_sample_name, sample_name)
                 # print_current_memory_usage()
@@ -575,28 +487,27 @@ class PangenomeGraph(nx.DiGraph):
 
             pre_sample_name = sample_name
 
-        assert sample_name not in sample_vcf_info_dict
-        sample_missing_dict = {hap: set(self.get_missing_variants(lc, exclude_terminus)) for hap, lc in
-                              sample_lc_dict.items()}
-        sample_info_list = self.get_sample_vcf_info(sample_name,
-                                                    sample_cr_dict,
-                                                    sample_ca_dict,
-                                                    sample_missing_dict,
-                                                    exclude_terminus=exclude_terminus
-                                                    )
-        sample_vcf_info_dict[sample_name] = sample_info_list
+            sample_missing_dict = {hap: set(self.get_missing_variants(lc, exclude_terminus)) for hap, lc in
+                                sample_lc_dict.items()}
+            sample_info_list = self.get_sample_vcf_info(sample_name,
+                                                        sample_cr_dict,
+                                                        sample_ca_dict,
+                                                        sample_missing_dict,
+                                                        exclude_terminus=exclude_terminus
+                                                        )
+            sample_vcf_info_dict[sample_name] = sample_info_list
 
-        sample_cr_dict.clear()
-        sample_ca_dict.clear()
-        sample_lc_dict.clear()
+            sample_cr_dict.clear()
+            sample_ca_dict.clear()
+            sample_lc_dict.clear()
 
-        if log_path:
-            log_action(log_path, f"Reading gfa, computing genotype and missing variants for haplotypes: {gfa_basename}")
+            if log_path:
+                log_action(log_path, f"Reading gfa, computing genotype and missing variants for haplotypes: {gfa_path}")
 
-        # subject_ids = sorted({sample_name.split('_')[0] for sample_name in sample_walks_dict.keys() if not sample_name.startswith("GRCh38")})
-        subject_ids = sorted(sample_vcf_info_dict.keys())
-
-        header_names = list(self.vcf_attribute_names) + subject_ids
+            sample_ids = sorted(sample_vcf_info_dict.keys())
+            
+        
+        header_names = list(self.vcf_attribute_names) + sample_ids
 
         print("Writing vcf file")
         with open(vcf_filename, 'w') as file:
@@ -664,7 +575,7 @@ class PangenomeGraph(nx.DiGraph):
                 allele_data_list.append('GT:CR:CA')
 
                 # 'sample1', 'sample2', ... 9 - end
-                for sample_name in subject_ids:
+                for sample_name in sample_ids:
                     counts = sample_vcf_info_dict[sample_name][idx]
                     allele_data_list.append(counts)
 
